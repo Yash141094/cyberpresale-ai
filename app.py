@@ -1,6 +1,6 @@
 import streamlit as st
 import os
-from utils.document_processor import extract_text_from_file
+from utils.document_processor import extract_text_from_file, extract_multiple_files
 from utils.ai_engine import (
     generate_customer_brief,
     generate_pain_analysis,
@@ -100,7 +100,7 @@ hr{border-color:var(--border)!important;margin:1rem 0!important;}
 """, unsafe_allow_html=True)
 
 # Session state
-for key in ["rfp_text","file_name","customer_brief","pain_analysis","solution_rec","competitive","product_map","exec_summary","domains","vis_cmo","vis_fmo","vis_threat","vis_traceability","vis_vendor"]:
+for key in ["rfp_text","file_name","customer_brief","pain_analysis","solution_rec","competitive","product_map","exec_summary","domains","vis_cmo","vis_fmo","vis_threat","vis_traceability","vis_vendor","doc_summaries"]:
     if key not in st.session_state:
         st.session_state[key] = None
 if "chat_history" not in st.session_state:
@@ -111,10 +111,10 @@ with st.sidebar:
     st.markdown("<div style='font-family:Playfair Display,serif;font-size:1rem;font-weight:700;color:#e8eaf0;padding:0 0.5rem 0.3rem'>CyberPresales <span style=\"color:#4f8ef7\">AI</span></div>", unsafe_allow_html=True)
     st.markdown("<div style='font-size:0.7rem;color:#5c6480;padding:0 0.5rem 1.2rem;font-family:IBM Plex Mono,monospace'>by Yash Mehrotra · v3.0</div>", unsafe_allow_html=True)
     st.markdown("---")
-    api_key = st.secrets.get("GROQ_API_KEY", "") or st.text_input("Groq API Key", type="password", placeholder="gsk_...")
-if api_key:
-    os.environ["GROQ_API_KEY"] = api_key
-    st.success("✓ Connected")
+    api_key = st.text_input("Groq API Key", type="password", placeholder="gsk_...")
+    if api_key:
+        os.environ["GROQ_API_KEY"] = api_key
+        st.success("✓ Connected")
     st.markdown("---")
     st.markdown("<div style='font-size:0.63rem;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:#5c6480;margin-bottom:0.6rem'>Intelligence Modules</div>", unsafe_allow_html=True)
     modules = ["Customer Brief", "Pain Analysis", "Solution Recommendation", "Competitive Intelligence", "Product Mapping", "Executive Summary", "Domain Classification", "Chat with RFP"]
@@ -122,10 +122,15 @@ if api_key:
         st.markdown(f"<div style='font-size:0.76rem;color:#9aa0b4;padding:0.15rem 0'>· {m}</div>", unsafe_allow_html=True)
     if st.session_state.rfp_text:
         st.markdown("---")
-        st.markdown(f"<div style='font-size:0.63rem;color:#5c6480;font-weight:600;letter-spacing:0.1em;text-transform:uppercase'>Active Document</div><div style='font-size:0.78rem;color:#4f8ef7;margin-top:0.3rem'>📄 {st.session_state.file_name}</div><div style='font-size:0.7rem;color:#5c6480;margin-top:0.2rem'>{len(st.session_state.rfp_text.split()):,} words</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:0.63rem;color:#5c6480;font-weight:600;letter-spacing:0.1em;text-transform:uppercase'>Active Documents</div><div style='font-size:0.78rem;color:#4f8ef7;margin-top:0.3rem'>📄 {st.session_state.file_name}</div><div style='font-size:0.7rem;color:#5c6480;margin-top:0.2rem'>{len(st.session_state.rfp_text.split()):,} total words</div>", unsafe_allow_html=True)
+        if st.session_state.doc_summaries:
+            for doc in st.session_state.doc_summaries:
+                icon = "✓" if doc["status"] == "success" else "✗"
+                color = "#34d399" if doc["status"] == "success" else "#f87171"
+                st.markdown(f"<div style='font-size:0.7rem;color:{color};padding:0.1rem 0'>{icon} {doc['name']} · {doc.get('words',0):,}w</div>", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("↺ Reset Session"):
-            for key in ["rfp_text","file_name","customer_brief","pain_analysis","solution_rec","competitive","product_map","exec_summary","domains","vis_cmo","vis_fmo","vis_threat","vis_traceability","vis_vendor"]:
+            for key in ["rfp_text","file_name","customer_brief","pain_analysis","solution_rec","competitive","product_map","exec_summary","domains","vis_cmo","vis_fmo","vis_threat","vis_traceability","vis_vendor","doc_summaries"]:
                 st.session_state[key] = None
             st.session_state.chat_history = []
             st.rerun()
@@ -153,20 +158,36 @@ st.markdown("""
 if not st.session_state.rfp_text:
     col1, col2 = st.columns([3,2])
     with col1:
-        st.markdown("<div class='section-label'>Document Upload</div>", unsafe_allow_html=True)
-        uploaded = st.file_uploader("Upload RFP (PDF or Word)", type=["pdf","docx"], label_visibility="collapsed")
-        if uploaded:
+        st.markdown("<div class='section-label'>Document Upload · Single or Multiple Files</div>", unsafe_allow_html=True)
+
+        uploaded_files = st.file_uploader(
+            "Upload RFP Documents (PDF or Word — select multiple)",
+            type=["pdf","docx"],
+            accept_multiple_files=True,
+            label_visibility="collapsed"
+        )
+
+        if uploaded_files:
             if not api_key:
                 st.warning("Please enter your Groq API Key in the sidebar.")
             else:
-                with st.spinner("Extracting document..."):
-                    text = extract_text_from_file(uploaded)
+                with st.spinner(f"Extracting {len(uploaded_files)} document(s)..."):
+                    if len(uploaded_files) == 1:
+                        text = extract_text_from_file(uploaded_files[0])
+                        summaries = [{"name": uploaded_files[0].name, "words": len(text.split()) if text else 0, "status": "success" if text else "failed", "size": f"{uploaded_files[0].size//1024} KB"}]
+                        file_name = uploaded_files[0].name
+                    else:
+                        text, summaries = extract_multiple_files(uploaded_files)
+                        file_name = f"{len(uploaded_files)} documents merged"
+
                     if text:
                         st.session_state.rfp_text = text
-                        st.session_state.file_name = uploaded.name
+                        st.session_state.file_name = file_name
+                        st.session_state.doc_summaries = summaries
                         st.rerun()
                     else:
-                        st.error("Could not extract text from this file.")
+                        st.error("Could not extract text. Please check your files.")
+
         st.markdown("<br><div style='text-align:center;color:#5c6480;font-size:0.73rem;margin-bottom:0.8rem'>— or load sample —</div>", unsafe_allow_html=True)
         c1,c2,c3 = st.columns([1,2,1])
         with c2:
@@ -176,6 +197,7 @@ if not st.session_state.rfp_text:
                 else:
                     st.session_state.rfp_text = SAMPLE_RFP
                     st.session_state.file_name = "HDFC_Cybersecurity_RFP_2025.pdf"
+                    st.session_state.doc_summaries = [{"name": "HDFC_Cybersecurity_RFP_2025.pdf", "words": len(SAMPLE_RFP.split()), "status": "success", "size": "sample"}]
                     st.rerun()
     with col2:
         st.markdown("<div class='section-label'>What You Get</div>", unsafe_allow_html=True)
@@ -396,3 +418,4 @@ else:
             if st.button("Clear Chat", key="btn_clearchat"):
                 st.session_state.chat_history = []
                 st.rerun()
+
