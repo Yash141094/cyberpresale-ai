@@ -111,10 +111,10 @@ with st.sidebar:
     st.markdown("<div style='font-family:Playfair Display,serif;font-size:1rem;font-weight:700;color:#e8eaf0;padding:0 0.5rem 0.3rem'>CyberPresales <span style=\"color:#4f8ef7\">AI</span></div>", unsafe_allow_html=True)
     st.markdown("<div style='font-size:0.7rem;color:#5c6480;padding:0 0.5rem 1.2rem;font-family:IBM Plex Mono,monospace'>by Yash Mehrotra · v3.0</div>", unsafe_allow_html=True)
     st.markdown("---")
-    api_key = st.text_input("Groq API Key", type="password", placeholder="gsk_...")
+   api_key = st.secrets.get("GROQ_API_KEY", "") or st.text_input("Groq API Key", type="password", placeholder="gsk_...")
     if api_key:
-        os.environ["GROQ_API_KEY"] = api_key
-        st.success("✓ Connected")
+    os.environ["GROQ_API_KEY"] = api_key
+    st.success("✓ Connected")
     st.markdown("---")
     st.markdown("<div style='font-size:0.63rem;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:#5c6480;margin-bottom:0.6rem'>Intelligence Modules</div>", unsafe_allow_html=True)
     modules = ["Customer Brief", "Pain Analysis", "Solution Recommendation", "Competitive Intelligence", "Product Mapping", "Executive Summary", "Domain Classification", "Chat with RFP"]
