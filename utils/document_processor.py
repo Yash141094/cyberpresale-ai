@@ -90,4 +90,3 @@ DOCUMENT: {uploaded_file.name}
             })
 
     return merged_text.strip(), doc_summaries
-
