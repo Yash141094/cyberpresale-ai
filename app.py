@@ -112,7 +112,7 @@ with st.sidebar:
     st.markdown("<div style='font-size:0.7rem;color:#5c6480;padding:0 0.5rem 1.2rem;font-family:IBM Plex Mono,monospace'>by Yash Mehrotra · v3.0</div>", unsafe_allow_html=True)
     st.markdown("---")
    api_key = st.secrets.get("GROQ_API_KEY", "") or st.text_input("Groq API Key", type="password", placeholder="gsk_...")
-    if api_key:
+if api_key:
     os.environ["GROQ_API_KEY"] = api_key
     st.success("✓ Connected")
     st.markdown("---")
