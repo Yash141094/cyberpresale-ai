@@ -185,49 +185,35 @@ Base recommendations on actual RFP requirements. Be specific about vendors."""
 def extract_threat_coverage(rfp_text):
     """Extract threat vs solution coverage matrix"""
     client = get_client()
-    prompt = f"""Based on this RFP, create a threat coverage matrix showing which threats are covered by which solutions.
+    prompt = f"""You are a senior cybersecurity architect. Read this RFP carefully and build a realistic threat coverage matrix based ONLY on what this specific customer needs.
 
-Respond ONLY with valid JSON:
+STEP 1 - Identify the top 6-8 threats most relevant to THIS customer based on their industry, size, and requirements mentioned in the RFP.
+
+STEP 2 - Identify 5-6 solution categories they need based on the RFP domains.
+
+STEP 3 - Score each threat vs solution honestly:
+- 0 = This solution does NOT address this threat
+- 1 = Partial coverage only
+- 2 = Good coverage
+- 3 = Strong, primary coverage
+
+Be realistic — most cells should be 0 or 1. Only assign 2 or 3 when there is a genuine strong relationship between that solution and that threat.
+
+Respond ONLY with valid JSON, no explanation, no markdown:
 {{
-  "threats": [
-    "Ransomware",
-    "APT / Nation State",
-    "Insider Threat",
-    "Phishing / BEC",
-    "Cloud Misconfiguration",
-    "Privileged Access Abuse",
-    "DDoS Attack",
-    "Data Exfiltration",
-    "Supply Chain Attack",
-    "Compliance Violation"
-  ],
-  "solutions": [
-    "SIEM/SOC",
-    "EDR/XDR",
-    "Zero Trust/IAM",
-    "Cloud Security",
-    "Network Security",
-    "GRC Platform"
-  ],
+  "threats": ["Threat 1", "Threat 2", "Threat 3", "Threat 4", "Threat 5", "Threat 6", "Threat 7", "Threat 8"],
+  "solutions": ["Solution 1", "Solution 2", "Solution 3", "Solution 4", "Solution 5", "Solution 6"],
   "coverage": {{
-    "Ransomware":            [2, 3, 1, 0, 2, 0],
-    "APT / Nation State":    [3, 3, 2, 1, 2, 0],
-    "Insider Threat":        [3, 2, 3, 1, 1, 2],
-    "Phishing / BEC":        [2, 2, 3, 1, 1, 1],
-    "Cloud Misconfiguration":[2, 1, 1, 3, 1, 2],
-    "Privileged Access Abuse":[3, 2, 3, 1, 1, 1],
-    "DDoS Attack":           [1, 0, 0, 1, 3, 0],
-    "Data Exfiltration":     [3, 2, 2, 3, 2, 1],
-    "Supply Chain Attack":   [2, 2, 1, 2, 1, 3],
-    "Compliance Violation":  [2, 1, 2, 2, 1, 3]
+    "Threat 1": [0, 1, 2, 3, 0, 1],
+    "Threat 2": [3, 2, 0, 1, 2, 0]
   }}
 }}
 
-Coverage scores: 0=No coverage, 1=Partial, 2=Good, 3=Strong
+Each coverage array must have exactly the same number of values as solutions.
+Threat names: keep short, max 4 words.
+Solution names: use standard names like SIEM/SOC, EDR/XDR, Zero Trust/IAM, Cloud Security, Network Security, GRC/Compliance, PAM, Threat Intel.
 
-RFP: {truncate(rfp_text, 4000)}
-
-Customize threats and solutions based on the RFP requirements."""
+RFP: {truncate(rfp_text, 5000)}"""
 
     response = client.chat.completions.create(
         model=MODEL, messages=[{"role": "user", "content": prompt}],
