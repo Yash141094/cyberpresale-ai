@@ -283,7 +283,19 @@ else:
                         st.session_state[session_key] = generator_fn(st.session_state.rfp_text)
                         st.rerun()
             else:
-                st.markdown(f"<div class='content-card'><p>{st.session_state[session_key]}</p></div>", unsafe_allow_html=True)
+                content = st.session_state[session_key]
+                if session_key == "product_map":
+                    sections = content.split("### ")
+                    for section in sections:
+                        if not section.strip():
+                            continue
+                        lines = section.strip().split("\n")
+                        domain_title = lines[0].strip()
+                        body = "\n".join(lines[1:]).strip()
+                        st.markdown(f"<div class='content-card' style='border-left:3px solid #4f8ef7;padding-left:1.2rem'><div style='font-size:1rem;font-weight:700;color:#e8eaf0;margin-bottom:0.6rem'>{domain_title}</div></div>", unsafe_allow_html=True)
+                        st.markdown(body)
+                else:
+                    st.markdown(f"<div class='content-card'><p>{content}</p></div>", unsafe_allow_html=True)
                 if st.button("↺ Regenerate", key=f"regen_{session_key}"):
                     st.session_state[session_key] = None
                     st.rerun()
