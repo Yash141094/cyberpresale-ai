@@ -35,52 +35,71 @@ def _base_layout(title="", height=500):
 
 
 def render_cmo(data):
-    """Current Mode of Operations — layered risk diagram"""
+    """Current Mode of Operations — horizontal layered table diagram"""
     layers = data.get("layers", [])
-    org = data.get("org_name", "Customer")
-    risk = data.get("risk_level", "High")
-    gaps = data.get("key_gaps", [])
+    org    = data.get("org_name", "Customer")
+    risk   = data.get("risk_level", "High")
+    gaps   = data.get("key_gaps", [])
 
-    layer_names = [l["name"] for l in layers]
-    issues_text = ["<br>".join(l.get("issues", [])) for l in layers]
-    items_text  = ["<br>".join(l.get("items",  [])) for l in layers]
-    colors_map  = {"red": RED, "orange": AMBER, "yellow": "#fde68a", "green": GREEN}
-    bar_colors  = [colors_map.get(l.get("color","orange"), AMBER) for l in layers]
-    risk_scores = [3 if l.get("color")=="red" else 2 if l.get("color")=="orange" else 1 for l in layers]
+    if not layers:
+        return None
 
-    fig = go.Figure()
+    colors_map = {"red": "#ef4444", "orange": "#f59e0b", "yellow": "#fde68a", "green": "#10b981"}
+    risk_label = {"red": "HIGH RISK", "orange": "MEDIUM RISK", "yellow": "LOW RISK", "green": "SECURED"}
 
-    # Risk bars
-    fig.add_trace(go.Bar(
-        x=layer_names,
-        y=risk_scores,
-        marker_color=bar_colors,
-        marker_line_color=BORDER,
-        marker_line_width=1,
-        text=[f"<b>{l['name']}</b><br><span style='font-size:10px;color:{TEXT2}'>{items_text[i]}</span>" for i, l in enumerate(layers)],
-        textposition="inside",
-        hovertemplate="<b>%{x}</b><br>Issues: " + "<br>".join(["%{customdata}"])+"<extra></extra>",
-        customdata=issues_text,
-        name="Risk Level",
-        width=0.6,
-    ))
+    # Build table rows — one row per layer
+    layer_names   = [f"<b>{l['name']}</b>" for l in layers]
+    current_state = ["<br>".join(l.get("items", ["Not specified"])) for l in layers]
+    issues        = ["<br>".join(l.get("issues", ["No issues identified"])) for l in layers]
+    risk_labels   = [risk_label.get(l.get("color", "orange"), "MEDIUM RISK") for l in layers]
 
+    row_colors_name  = [colors_map.get(l.get("color", "orange"), AMBER) + "22" for l in layers]
+    row_colors_issue = [colors_map.get(l.get("color", "orange"), AMBER) + "33" for l in layers]
+    risk_colors      = [colors_map.get(l.get("color", "orange"), AMBER) + "55" for l in layers]
+
+    fig = go.Figure(data=[go.Table(
+        columnwidth=[160, 280, 280, 100],
+        header=dict(
+            values=[
+                "<b>Security Domain</b>",
+                "<b>Current State (What exists today)</b>",
+                "<b>Gaps & Issues Identified</b>",
+                "<b>Risk Level</b>",
+            ],
+            fill_color=["#1e1b4b", "#1e1b4b", "#7f1d1d", "#1e1b4b"],
+            font=dict(color=TEXT, size=11, family="IBM Plex Sans"),
+            align="left",
+            height=36,
+            line_color=BORDER,
+        ),
+        cells=dict(
+            values=[layer_names, current_state, issues, risk_labels],
+            fill_color=[
+                row_colors_name,
+                [SURFACE2] * len(layers),
+                row_colors_issue,
+                risk_colors,
+            ],
+            font=dict(color=[TEXT, TEXT2, "#fca5a5", TEXT], size=10, family="IBM Plex Sans"),
+            align="left",
+            height=40,
+            line_color=BORDER,
+        ),
+    )])
+
+    title = f"CMO — Current Mode of Operations  ·  {org}  ·  Overall Risk: {risk}"
     fig.update_layout(
-        **_base_layout(f"CMO — Current Mode of Operations  ·  {org}  ·  Risk: {risk}", height=420),
-        xaxis=dict(showgrid=False, tickfont=dict(color=TEXT, size=11)),
-        yaxis=dict(showgrid=False, showticklabels=False, range=[0, 4]),
-        showlegend=False,
-        bargap=0.25,
+        **_base_layout(title, height=max(380, len(layers) * 50 + 100)),
+        margin=dict(l=10, r=10, t=50, b=60),
     )
 
-    # Add annotation for key gaps
     if gaps:
         fig.add_annotation(
             text="⚠  Key Gaps: " + "  ·  ".join(gaps),
             xref="paper", yref="paper",
             x=0.0, y=-0.12,
             showarrow=False,
-            font=dict(color=AMBER, size=10),
+            font=dict(color=AMBER, size=11),
             align="left",
         )
 
@@ -88,69 +107,75 @@ def render_cmo(data):
 
 
 def render_fmo(data):
-    """Future Mode of Operations — solution architecture diagram"""
-    layers = data.get("layers", [])
-    arch   = data.get("architecture_name", "Integrated Security Platform")
-    outcomes = data.get("key_outcomes", [])
+    """Future Mode of Operations — horizontal layered architecture table"""
+    layers      = data.get("layers", [])
+    arch        = data.get("architecture_name", "Integrated Security Platform")
+    outcomes    = data.get("key_outcomes", [])
     integration = data.get("integration_layer", "Unified Security Fabric")
 
-    layer_names = [l["name"] for l in layers]
-    vendors     = [l.get("vendor", "") for l in layers]
-    caps_text   = ["<br>".join(l.get("capabilities", [])) for l in layers]
-    sols_text   = ["<br>".join(l.get("solutions", [])) for l in layers]
+    if not layers:
+        return None
 
-    # All green — this is the future state
-    layer_colors = [GREEN, TEAL, ACCENT, PURPLE, AMBER, "#ec4899"]
+    layer_colors_list = [GREEN, TEAL, ACCENT, PURPLE, AMBER, "#ec4899", "#f97316", "#06b6d4"]
 
-    fig = go.Figure()
+    layer_names = [f"<b>{l['name']}</b>" for l in layers]
+    vendors     = [l.get("vendor", "TBD") for l in layers]
+    solutions   = ["<br>".join(l.get("solutions", [])) for l in layers]
+    capabilities= ["<br>".join(l.get("capabilities", [])) for l in layers]
 
-    fig.add_trace(go.Bar(
-        x=layer_names,
-        y=[3] * len(layers),
-        marker_color=layer_colors[:len(layers)],
-        marker_line_color=BORDER,
-        marker_line_width=1,
-        marker_opacity=0.85,
-        text=[f"<b>{l['name']}</b><br><span style='font-size:9px'>{sols_text[i]}</span>" for i, l in enumerate(layers)],
-        textposition="inside",
-        hovertemplate="<b>%{x}</b><br>Solutions: %{customdata[0]}<br>Capabilities: %{customdata[1]}<extra></extra>",
-        customdata=list(zip(sols_text, caps_text)),
-        name="Solution Coverage",
-        width=0.6,
-    ))
+    row_bg   = [c + "22" for c in layer_colors_list[:len(layers)]]
+    sol_bg   = [SURFACE2] * len(layers)
+    cap_bg   = [c + "11" for c in layer_colors_list[:len(layers)]]
+    vend_bg  = [c + "33" for c in layer_colors_list[:len(layers)]]
 
-    # Integration layer band
-    fig.add_hrect(
-        y0=2.85, y1=3.15,
-        fillcolor=ACCENT, opacity=0.08,
-        line_width=0,
-    )
+    fig = go.Figure(data=[go.Table(
+        columnwidth=[160, 200, 240, 220],
+        header=dict(
+            values=[
+                "<b>Security Layer</b>",
+                "<b>Recommended Vendor</b>",
+                "<b>Proposed Solutions</b>",
+                "<b>Key Capabilities Delivered</b>",
+            ],
+            fill_color=["#064e3b", "#064e3b", "#064e3b", "#064e3b"],
+            font=dict(color=TEXT, size=11, family="IBM Plex Sans"),
+            align="left",
+            height=36,
+            line_color=BORDER,
+        ),
+        cells=dict(
+            values=[layer_names, vendors, solutions, capabilities],
+            fill_color=[row_bg, vend_bg, sol_bg, cap_bg],
+            font=dict(color=[TEXT, GREEN, TEXT2, TEXT2], size=10, family="IBM Plex Sans"),
+            align="left",
+            height=40,
+            line_color=BORDER,
+        ),
+    )])
 
+    title = f"FMO — Future Mode of Operations  ·  {arch}"
     fig.update_layout(
-        **_base_layout(f"FMO — Future Mode of Operations  ·  {arch}", height=420),
-        xaxis=dict(showgrid=False, tickfont=dict(color=TEXT, size=11)),
-        yaxis=dict(showgrid=False, showticklabels=False, range=[0, 3.5]),
-        showlegend=False,
-        bargap=0.25,
+        **_base_layout(title, height=max(400, len(layers) * 50 + 120)),
+        margin=dict(l=10, r=10, t=50, b=80),
     )
 
     if integration:
         fig.add_annotation(
             text=f"🔗  Integration Layer: {integration}",
             xref="paper", yref="paper",
-            x=0.0, y=-0.10,
+            x=0.0, y=-0.1,
             showarrow=False,
-            font=dict(color=ACCENT, size=10),
+            font=dict(color=ACCENT, size=11),
             align="left",
         )
 
     if outcomes:
         fig.add_annotation(
-            text="✓  Outcomes: " + "  ·  ".join(outcomes),
+            text="✓  Key Outcomes: " + "  ·  ".join(outcomes),
             xref="paper", yref="paper",
-            x=0.0, y=-0.17,
+            x=0.0, y=-0.18,
             showarrow=False,
-            font=dict(color=GREEN, size=10),
+            font=dict(color=GREEN, size=11),
             align="left",
         )
 
@@ -158,56 +183,81 @@ def render_fmo(data):
 
 
 def render_threat_coverage(data):
-    """Threat Coverage Heatmap"""
+    """Threat Coverage Matrix — readable table format"""
     threats   = data.get("threats", [])
     solutions = data.get("solutions", [])
     coverage  = data.get("coverage", {})
 
-    # Build matrix
-    matrix = []
-    for threat in threats:
-        row = coverage.get(threat, [0] * len(solutions))
-        if len(row) < len(solutions):
-            row = row + [0] * (len(solutions) - len(row))
-        matrix.append(row[:len(solutions)])
+    if not threats or not solutions:
+        return None
 
-    # Custom colorscale: 0=red, 1=orange, 2=yellow-green, 3=green
-    colorscale = [
-        [0.0,  "#2d1b1b"],
-        [0.33, "#7f1d1d"],
-        [0.34, "#78350f"],
-        [0.67, "#064e3b"],
-        [1.0,  "#059669"],
-    ]
+    # Label and colour per score
+    score_label = {0: "✗  None", 1: "◑  Partial", 2: "●  Good", 3: "★  Strong"}
+    score_color = {0: "#450a0a", 1: "#78350f", 2: "#064e3b", 3: "#065f46"}
+    score_text  = {0: "#ef4444", 1: "#f59e0b", 2: "#34d399", 3: "#10b981"}
 
-    labels = [["No Coverage", "Partial", "Good", "Strong"][v] for row in matrix for v in row]
-    labels_2d = [labels[i*len(solutions):(i+1)*len(solutions)] for i in range(len(threats))]
+    # Build cell values and colours per solution column
+    col_values = []
+    col_fill   = []
+    col_font   = []
 
-    fig = go.Figure(data=go.Heatmap(
-        z=matrix,
-        x=solutions,
-        y=threats,
-        colorscale=colorscale,
-        zmin=0, zmax=3,
-        text=labels_2d,
-        texttemplate="%{text}",
-        textfont=dict(size=10, color=TEXT),
-        hoverongaps=False,
-        showscale=True,
-        colorbar=dict(
-            title=dict(text="Coverage", font=dict(color=TEXT2, size=11)),
-            tickvals=[0, 1, 2, 3],
-            ticktext=["None", "Partial", "Good", "Strong"],
-            tickfont=dict(color=TEXT2, size=10),
-            bgcolor=SURFACE,
-            bordercolor=BORDER,
+    for sol in solutions:
+        col_vals  = []
+        col_fills = []
+        col_fonts = []
+        for threat in threats:
+            row = coverage.get(threat, [0] * len(solutions))
+            if len(row) < len(solutions):
+                row = row + [0] * (len(solutions) - len(row))
+            idx = solutions.index(sol) if sol in solutions else 0
+            score = row[idx] if idx < len(row) else 0
+            col_vals.append(score_label[score])
+            col_fills.append(score_color[score])
+            col_fonts.append(score_text[score])
+        col_values.append(col_vals)
+        col_fill.append(col_fills)
+        col_font.append(col_fonts)
+
+    header_vals = ["<b>Threat / Attack Vector</b>"] + [f"<b>{s}</b>" for s in solutions]
+    col_widths  = [180] + [120] * len(solutions)
+
+    fig = go.Figure(data=[go.Table(
+        columnwidth=col_widths,
+        header=dict(
+            values=header_vals,
+            fill_color=["#1e1b4b"] + ["#1e3a5f"] * len(solutions),
+            font=dict(color=TEXT, size=11, family="IBM Plex Sans"),
+            align="center",
+            height=38,
+            line_color=BORDER,
         ),
-    ))
+        cells=dict(
+            values=[[f"<b>{t}</b>" for t in threats]] + col_values,
+            fill_color=[[SURFACE2] * len(threats)] + col_fill,
+            font=dict(
+                color=[TEXT] + col_font,
+                size=10,
+                family="IBM Plex Sans"
+            ),
+            align=["left"] + ["center"] * len(solutions),
+            height=34,
+            line_color=BORDER,
+        ),
+    )])
 
     fig.update_layout(
-        **_base_layout("Threat Coverage Matrix  ·  Solution vs Threat Mapping", height=480),
-        xaxis=dict(side="top", tickfont=dict(color=TEXT, size=11), tickangle=-20, showgrid=False),
-        yaxis=dict(tickfont=dict(color=TEXT, size=11), showgrid=False, autorange="reversed"),
+        **_base_layout("Threat Coverage Matrix  ·  Based on RFP Requirements & Current Market Threats",
+                       height=max(420, len(threats) * 38 + 100)),
+        margin=dict(l=10, r=10, t=50, b=60),
+    )
+
+    fig.add_annotation(
+        text="★ Strong Coverage  ·  ● Good Coverage  ·  ◑ Partial Coverage  ·  ✗ No Coverage",
+        xref="paper", yref="paper",
+        x=0.0, y=-0.1,
+        showarrow=False,
+        font=dict(color=TEXT2, size=10),
+        align="left",
     )
 
     return fig
@@ -273,8 +323,8 @@ def render_requirements_traceability(data):
     fig.update_layout(
         **_base_layout("Requirements Traceability Matrix  ·  RFP Requirements → Proposed Solutions",
                        height=max(400, len(reqs) * 30 + 80)),
+        margin=dict(l=10, r=10, t=50, b=10),
     )
-    fig.update_layout(margin=dict(l=10, r=10, t=50, b=10))
 
     return fig
 
