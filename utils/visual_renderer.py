@@ -80,7 +80,7 @@ def render_cmo(data):
                 row_colors_issue,
                 risk_colors,
             ],
-            font=dict(color=[TEXT, TEXT2, "#fca5a5", TEXT], size=10, family="IBM Plex Sans"),
+            font=dict(color=TEXT2, size=10, family="IBM Plex Sans"),
             align="left",
             height=40,
             line_color=BORDER,
@@ -146,7 +146,7 @@ def render_fmo(data):
         cells=dict(
             values=[layer_names, vendors, solutions, capabilities],
             fill_color=[row_bg, vend_bg, sol_bg, cap_bg],
-            font=dict(color=[TEXT, GREEN, TEXT2, TEXT2], size=10, family="IBM Plex Sans"),
+            font=dict(color=TEXT2, size=10, family="IBM Plex Sans"),
             align="left",
             height=40,
             line_color=BORDER,
