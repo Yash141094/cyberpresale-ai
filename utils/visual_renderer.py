@@ -321,8 +321,8 @@ def render_requirements_traceability(data):
     )])
 
     fig.update_layout(
-        **_base_layout("Requirements Traceability Matrix  ·  RFP Requirements → Proposed Solutions",
-                       height=max(400, len(reqs) * 30 + 80)),
+        **_base_layout("Requirements Traceability Matrix  -  RFP Requirements to Proposed Solutions",
+                       height=max(400, len(reqs) * 32 + 100)),
         margin=dict(l=10, r=10, t=50, b=10),
     )
 
@@ -410,10 +410,10 @@ def render_vendor_positioning(data):
 
     fig.update_layout(
         **_base_layout("Vendor Positioning Map  ·  Solution Completeness vs Implementation Ease", height=520),
-        xaxis=dict(title=dict(text="Solution Completeness →", font=dict(color=TEXT2, size=11)),
+        xaxis=dict(title=dict(text="Solution Completeness", font=dict(color=TEXT2, size=11)),
                    range=[0, 10.5], showgrid=True,
                    gridcolor=BORDER, tickfont=dict(color=TEXT2)),
-        yaxis=dict(title=dict(text="Ease of Implementation →", font=dict(color=TEXT2, size=11)),
+        yaxis=dict(title=dict(text="Ease of Implementation", font=dict(color=TEXT2, size=11)),
                    range=[0, 10.5], showgrid=True,
                    gridcolor=BORDER, tickfont=dict(color=TEXT2)),
         showlegend=False,
