@@ -1,5 +1,6 @@
 import os
 import json
+import time
 from openai import OpenAI
 
 def get_client():
@@ -15,6 +16,28 @@ MODEL = "llama-3.3-70b-versatile"
 
 def truncate_text(text, max_chars=12000):
     return text[:max_chars] if len(text) > max_chars else text
+
+
+def call_llm(client, messages, max_tokens=1500, temperature=0.2):
+    """Central LLM caller with automatic retry on rate limit."""
+    max_retries = 4
+    wait_times  = [10, 20, 40, 60]  # seconds between retries
+    for attempt in range(max_retries):
+        try:
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            err = str(e).lower()
+            is_rate_limit = "rate" in err or "429" in err or "limit" in err or "quota" in err
+            if is_rate_limit and attempt < max_retries - 1:
+                time.sleep(wait_times[attempt])
+                continue
+            raise
 
 
 def generate_customer_brief(rfp_text):
@@ -49,13 +72,7 @@ RFP:
 
 Be specific, insightful, and sharp. Avoid generic statements. Every line should be directly derived from or intelligently inferred from the RFP content."""
 
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=1500,
-        temperature=0.3
-    )
-    return response.choices[0].message.content
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1500, temperature=0.3)
 
 
 def generate_pain_analysis(rfp_text):
@@ -96,13 +113,7 @@ RFP:
 
 Be analytical, honest, and commercially aware. A great presales consultant uses this analysis to build a proposal that speaks directly to pain — not just features."""
 
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=2000,
-        temperature=0.2
-    )
-    return response.choices[0].message.content
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=2000, temperature=0.2)
 
 
 def generate_solution_recommendation(rfp_text):
@@ -154,13 +165,7 @@ RFP:
 
 This is a strategic recommendation document. Be opinionated, specific, and commercially smart."""
 
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=2000,
-        temperature=0.3
-    )
-    return response.choices[0].message.content
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=2000, temperature=0.3)
 
 
 def generate_competitive_landscape(rfp_text):
@@ -207,13 +212,7 @@ RFP:
 
 Be realistic, honest, and strategically sharp. The goal is to help the sales team go in with eyes wide open."""
 
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=2000,
-        temperature=0.3
-    )
-    return response.choices[0].message.content
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=2000, temperature=0.3)
 
 
 def generate_product_mapping(rfp_text):
@@ -259,13 +258,7 @@ RFP:
 
 Be specific, opinionated, and commercially grounded. Every recommendation must be justified by actual RFP requirements."""
 
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=3000,
-        temperature=0.2
-    )
-    return response.choices[0].message.content
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=3000, temperature=0.2)
 
 
 def generate_executive_summary(rfp_text):
@@ -301,13 +294,7 @@ TONE: Confident, authoritative, business-first. No acronyms without explanation.
 RFP:
 {truncate_text(rfp_text)}"""
 
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=1200,
-        temperature=0.3
-    )
-    return response.choices[0].message.content
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1200, temperature=0.3)
 
 
 def classify_domains(rfp_text):
@@ -329,13 +316,7 @@ Respond with ONLY valid JSON:
 
 RFP: {truncate_text(rfp_text)}"""
 
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=800,
-        temperature=0.1
-    )
-    content = response.choices[0].message.content.strip()
+    content = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=800, temperature=0.1).strip()
     if "```json" in content:
         content = content.split("```json")[1].split("```")[0].strip()
     elif "```" in content:
@@ -387,10 +368,4 @@ RFP: {truncate_text(rfp_text, 8000)}"""
             messages.append({"role": "assistant", "content": history[i+1]})
     messages.append({"role": "user", "content": question})
 
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=messages,
-        max_tokens=800,
-        temperature=0.2
-    )
-    return response.choices[0].message.content
+    return call_llm(client, messages, max_tokens=800, temperature=0.2)
