@@ -39,160 +39,120 @@ def call_llm(client, messages, max_tokens=1000, temperature=0.1):
             raise
 
 def extract_cmo_data(rfp_text):
-    """Extract current environment data for CMO diagram"""
+    """Extract CMO as structured requirements table with support/coverage terms from RFP."""
     client = get_client()
-    prompt = f"""Analyze this RFP and extract the customer's CURRENT environment (before the new solution).
+    prompt = """You are a senior cybersecurity managed services consultant working with global enterprise customers. Read this RFP carefully and extract the customer's CURRENT state as a detailed service requirements table.
 
-Respond ONLY with valid JSON:
-{{
-  "org_name": "Organization name",
-  "industry": "Industry vertical",
-  "layers": [
-    {{
-      "name": "Users & Devices",
-      "items": ["8500 Windows endpoints", "1200 Linux servers"],
-      "issues": ["No EDR", "Unmanaged devices"],
-      "color": "red"
-    }},
-    {{
-      "name": "Network",
-      "items": ["Legacy firewalls", "No IDS/IPS"],
-      "issues": ["Flat network", "No microsegmentation"],
-      "color": "orange"
-    }},
-    {{
-      "name": "Identity & Access",
-      "items": ["Active Directory", "Basic MFA"],
-      "issues": ["No PAM", "Weak privileged access"],
-      "color": "red"
-    }},
-    {{
-      "name": "Cloud",
-      "items": ["AWS workloads", "Azure M365"],
-      "issues": ["No CSPM", "Unmonitored"],
-      "color": "orange"
-    }},
-    {{
-      "name": "Security Operations",
-      "items": ["Basic SIEM", "Manual incident response"],
-      "issues": ["No SOAR", "Slow detection"],
-      "color": "red"
-    }},
-    {{
-      "name": "Compliance & GRC",
-      "items": ["Manual audits", "Spreadsheet tracking"],
-      "issues": ["RBI gaps", "PCI-DSS gaps"],
-      "color": "red"
-    }}
-  ],
-  "key_gaps": ["No unified visibility", "Manual processes", "Compliance risk", "No threat hunting"],
-  "risk_level": "High"
-}}
+Respond ONLY with valid JSON, no explanation, no markdown:
+{
+  "org_name": "Organization name from RFP",
+  "industry": "Industry sector",
+  "rows": [
+    {
+      "requirement": "SIEM / Security Operations",
+      "sub_requirement": "Real-time log ingestion and correlation",
+      "current_tool": "Splunk (basic license)",
+      "licence_owner": "Customer",
+      "support_hours": "8x5",
+      "timezone": "IST",
+      "vm_frequency": "Monthly",
+      "requirement_brief": "Customer requires ingestion from 5000+ endpoints. Currently only collecting firewall logs with manual review."
+    }
+  ]
+}
 
-RFP: {truncate(rfp_text)}
+FIELD RULES:
+requirement: Parent domain (SIEM/SOC, EDR/XDR, Identity & IAM, Cloud Security, Network Security, GRC/Compliance, PAM, Threat Intel, Vulnerability Management)
+sub_requirement: Specific measurable deliverable within that domain
+current_tool: Actual product name if inferable, else "Unknown" or "None"
+licence_owner: Exactly one of "Customer", "Supplier", "Shared", "None"
+support_hours: Infer from RFP SLAs — "8x5", "12x5", "24x5", "24x7", "P1 On-Call", "Business Hours". Default "8x5" if silent.
+timezone: Infer from RFP — "IST", "GMT", "EST", "Multi-region", "Follow-the-Sun", "APAC+EMEA". Use "As per RFP" if unknown.
+vm_frequency: Service review or vulnerability scan frequency — "Continuous", "Weekly", "Monthly", "Quarterly", "Ad-hoc". Infer from context.
+requirement_brief: 1-2 sentences. What the RFP asks for AND what the current gap is.
 
-Infer current state from what they are ASKING FOR — if they want EDR, they likely don't have one. Be specific."""
+Extract 12-18 rows. Each domain should have 2-3 sub-requirements. Be specific.
 
-    content = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1200, temperature=0.1).strip()
-    if "```json" in content: content = content.split("```json")[1].split("```")[0].strip()
-    elif "```" in content: content = content.split("```")[1].split("```")[0].strip()
-    start, end = content.find("{"), content.rfind("}") + 1
-    if start != -1 and end > start: content = content[start:end]
+RFP:
+""" + truncate(rfp_text)
+
+    content_raw = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=3500, temperature=0.1).strip()
+    if "```json" in content_raw: content_raw = content_raw.split("```json")[1].split("```")[0].strip()
+    elif "```" in content_raw: content_raw = content_raw.split("```")[1].split("```")[0].strip()
+    start, end = content_raw.find("{"), content_raw.rfind("}") + 1
+    if start != -1 and end > start: content_raw = content_raw[start:end]
     try:
-        return json.loads(content)
+        return json.loads(content_raw)
     except:
-        return {"org_name": "Customer", "industry": "Enterprise", "layers": [
-            {"name": "Users & Devices", "items": ["Mixed endpoints"], "issues": ["No EDR"], "color": "red"},
-            {"name": "Network", "items": ["Legacy infrastructure"], "issues": ["Limited visibility"], "color": "orange"},
-            {"name": "Identity & Access", "items": ["Active Directory"], "issues": ["No PAM"], "color": "red"},
-            {"name": "Cloud", "items": ["Cloud workloads"], "issues": ["No CSPM"], "color": "orange"},
-            {"name": "Security Operations", "items": ["Basic monitoring"], "issues": ["No SOAR"], "color": "red"},
-            {"name": "Compliance & GRC", "items": ["Manual processes"], "issues": ["Compliance gaps"], "color": "red"},
-        ], "key_gaps": ["Limited visibility", "Manual processes", "Compliance risk"],
-        "risk_level": "High"}
+        return {"org_name": "Customer", "industry": "Enterprise", "rows": [
+            {"requirement": "SIEM / SOC", "sub_requirement": "Log ingestion and correlation", "current_tool": "Unknown", "licence_owner": "None", "support_hours": "8x5", "timezone": "IST", "vm_frequency": "Monthly", "requirement_brief": "RFP requires centralized log management and real-time correlation across all environments."},
+            {"requirement": "SIEM / SOC", "sub_requirement": "24x7 SOC monitoring", "current_tool": "None", "licence_owner": "None", "support_hours": "24x7", "timezone": "Multi-region", "vm_frequency": "Weekly", "requirement_brief": "No active SOC. RFP mandates continuous monitoring with P1 response SLA."},
+            {"requirement": "Endpoint Security", "sub_requirement": "EDR agent deployment", "current_tool": "Legacy AV", "licence_owner": "Customer", "support_hours": "8x5", "timezone": "IST", "vm_frequency": "Quarterly", "requirement_brief": "Existing AV insufficient. EDR with behavioural detection and isolation required."},
+            {"requirement": "Identity & Access", "sub_requirement": "Privileged access management", "current_tool": "None", "licence_owner": "None", "support_hours": "8x5", "timezone": "IST", "vm_frequency": "Quarterly", "requirement_brief": "No PAM in place. RFP mandates JIT access and session recording."},
+        ]}
 
 
-def extract_fmo_data(rfp_text):
-    """Extract future state data for FMO diagram"""
+def extract_fmo_data(solution_rec_text):
+    """Extract FMO as structured recommendations table from solution recommendation output."""
     client = get_client()
-    prompt = f"""Analyze this RFP and extract the FUTURE state — the proposed integrated security architecture.
+    prompt = """You are a senior cybersecurity architect. Read this solution recommendation and structure it as a formal Future Mode of Operations table for a global enterprise proposal.
 
-Respond ONLY with valid JSON:
-{{
-  "architecture_name": "Integrated Security Platform",
-  "layers": [
-    {{
-      "name": "Users & Devices",
-      "solutions": ["CrowdStrike Falcon EDR", "Device Control", "MDR 24x7"],
-      "capabilities": ["Real-time threat detection", "Auto-isolation", "Threat hunting"],
-      "color": "green",
-      "vendor": "CrowdStrike / SentinelOne"
-    }},
-    {{
-      "name": "Network Security",
-      "solutions": ["Palo Alto NGFW", "IDS/IPS", "WAF"],
-      "capabilities": ["Deep packet inspection", "Microsegmentation", "DDoS protection"],
-      "color": "green",
-      "vendor": "Palo Alto Networks"
-    }},
-    {{
-      "name": "Identity & Zero Trust",
-      "solutions": ["Okta Identity Cloud", "CyberArk PAM", "MFA"],
-      "capabilities": ["Zero standing privileges", "JIT access", "Session recording"],
-      "color": "green",
-      "vendor": "Okta / CyberArk"
-    }},
-    {{
-      "name": "Cloud Security",
-      "solutions": ["Prisma Cloud CSPM", "CWPP", "CNAPP"],
-      "capabilities": ["Posture management", "Container security", "API protection"],
-      "color": "green",
-      "vendor": "Palo Alto Prisma"
-    }},
-    {{
-      "name": "Security Operations",
-      "solutions": ["Microsoft Sentinel SIEM", "SOAR", "UEBA"],
-      "capabilities": ["50K EPS ingestion", "Automated response", "Threat intelligence"],
-      "color": "green",
-      "vendor": "Microsoft / Splunk"
-    }},
-    {{
-      "name": "Compliance & GRC",
-      "solutions": ["GRC Platform", "Automated audit", "Risk management"],
-      "capabilities": ["RBI/SEBI compliance", "Auto-evidence collection", "Vendor risk"],
-      "color": "green",
-      "vendor": "ServiceNow / Archer"
-    }}
+Respond ONLY with valid JSON, no explanation, no markdown:
+{
+  "architecture_name": "Proposed architecture name",
+  "rows": [
+    {
+      "requirement": "SIEM / Security Operations",
+      "sub_requirement": "Real-time log ingestion and correlation",
+      "recommended_solution": "Microsoft Sentinel",
+      "vendor": "Microsoft",
+      "support_model": "24x7 Managed SOC",
+      "timezone_coverage": "Follow-the-Sun (IST + GMT + EST)",
+      "vm_frequency": "Continuous",
+      "fit_rationale": "Native Azure integration reduces deployment time by 60% and eliminates need for additional connectors."
+    },
+    {
+      "requirement": "SIEM / Security Operations",
+      "sub_requirement": "24x7 SOC monitoring and incident response",
+      "recommended_solution": "Managed SOC via Sentinel + Defender XDR",
+      "vendor": "Microsoft / MSSP",
+      "support_model": "24x7 + P1 On-Call (15 min SLA)",
+      "timezone_coverage": "Global (Follow-the-Sun)",
+      "vm_frequency": "Weekly",
+      "fit_rationale": "Unified XDR platform reduces analyst workload and enables automated Tier-1 response."
+    }
   ],
-  "integration_layer": "Unified Security Data Lake + SOAR Orchestration",
-  "key_outcomes": ["90% faster detection", "Automated compliance", "Unified visibility", "Zero Trust achieved"],
-  "maturity_target": "Optimized"
-}}
+  "key_outcomes": ["90% faster detection", "Automated compliance reporting", "Zero Trust achieved"],
+  "integration_note": "All components integrated via unified security data lake and SOAR orchestration."
+}
 
-RFP: {truncate(rfp_text)}
+FIELD RULES:
+requirement: Parent domain — must mirror the CMO requirement categories
+sub_requirement: Specific deliverable — must mirror CMO sub-requirements where possible
+recommended_solution: Specific product name (e.g. Microsoft Sentinel, CrowdStrike Falcon, Prisma Cloud CNAPP)
+vendor: Vendor name only
+support_model: Proposed service level — "8x5 Business Hours", "24x7 NOC/SOC", "24x7 + P1 On-Call", "Managed Service", "Self-Managed"
+timezone_coverage: Coverage scope — "IST Business Hours", "Follow-the-Sun (IST+GMT+EST)", "Global 24x7", "APAC+EMEA", specific timezone if mentioned in RFP
+vm_frequency: Proposed scan or review cadence — "Continuous", "Weekly", "Monthly", "Quarterly"
+fit_rationale: 1 sentence. Why THIS specific solution for THIS customer based on the recommendation.
 
-Base recommendations on actual RFP requirements. Be specific about vendors."""
+Extract 12-18 rows matching the CMO structure. Base ALL recommendations strictly on the solution recommendation text provided.
 
-    content = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1500, temperature=0.2).strip()
-    if "```json" in content: content = content.split("```json")[1].split("```")[0].strip()
-    elif "```" in content: content = content.split("```")[1].split("```")[0].strip()
-    start, end = content.find("{"), content.rfind("}") + 1
-    if start != -1 and end > start: content = content[start:end]
+Solution Recommendation:
+""" + truncate(solution_rec_text, 6000)
+
+    content_raw = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=3500, temperature=0.1).strip()
+    if "```json" in content_raw: content_raw = content_raw.split("```json")[1].split("```")[0].strip()
+    elif "```" in content_raw: content_raw = content_raw.split("```")[1].split("```")[0].strip()
+    start, end = content_raw.find("{"), content_raw.rfind("}") + 1
+    if start != -1 and end > start: content_raw = content_raw[start:end]
     try:
-        return json.loads(content)
+        return json.loads(content_raw)
     except:
-        return {"architecture_name": "Integrated Security Platform",
-        "layers": [
-            {"name": "Users & Devices", "solutions": ["EDR/XDR Platform"], "capabilities": ["Real-time protection"], "color": "green", "vendor": "CrowdStrike"},
-            {"name": "Network Security", "solutions": ["NGFW + IDS/IPS"], "capabilities": ["Deep inspection"], "color": "green", "vendor": "Palo Alto"},
-            {"name": "Identity & Zero Trust", "solutions": ["IAM + PAM"], "capabilities": ["Zero Trust"], "color": "green", "vendor": "Okta/CyberArk"},
-            {"name": "Cloud Security", "solutions": ["CNAPP Platform"], "capabilities": ["Posture management"], "color": "green", "vendor": "Prisma Cloud"},
-            {"name": "Security Operations", "solutions": ["SIEM + SOAR"], "capabilities": ["Automated response"], "color": "green", "vendor": "Microsoft Sentinel"},
-            {"name": "Compliance & GRC", "solutions": ["GRC Platform"], "capabilities": ["Auto compliance"], "color": "green", "vendor": "ServiceNow"},
-        ],
-        "integration_layer": "Unified Security Fabric",
-        "key_outcomes": ["Faster detection", "Automated compliance", "Zero Trust"],
-        "maturity_target": "Optimized"}
+        return {"architecture_name": "Integrated Security Platform", "rows": [
+            {"requirement": "SIEM / SOC", "sub_requirement": "Log ingestion and correlation", "recommended_solution": "Microsoft Sentinel", "vendor": "Microsoft", "support_model": "24x7 Managed SOC", "timezone_coverage": "Follow-the-Sun", "vm_frequency": "Continuous", "fit_rationale": "Native Azure integration aligns with existing M365 investment."},
+            {"requirement": "Endpoint Security", "sub_requirement": "EDR agent deployment", "recommended_solution": "CrowdStrike Falcon", "vendor": "CrowdStrike", "support_model": "24x7 + P1 On-Call", "timezone_coverage": "Global 24x7", "vm_frequency": "Continuous", "fit_rationale": "Industry-leading detection with lightweight agent, rapid deployment."},
+        ], "key_outcomes": ["Faster detection", "Automated compliance", "Zero Trust"], "integration_note": "Unified via SOAR orchestration layer."}
 
 
 def extract_threat_coverage(rfp_text):
