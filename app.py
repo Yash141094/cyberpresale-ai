@@ -1,434 +1,371 @@
-import streamlit as st
 import os
-from utils.document_processor import extract_text_from_file, extract_multiple_files
-from utils.ai_engine import (
-    generate_customer_brief,
-    generate_pain_analysis,
-    generate_solution_recommendation,
-    generate_competitive_landscape,
-    generate_product_mapping,
-    generate_executive_summary,
-    classify_domains,
-    chat_with_rfp
-)
-try:
-    from utils.visuals_engine import (
-        extract_cmo_data, extract_fmo_data, extract_threat_coverage,
-        extract_requirements_traceability, extract_vendor_positioning
-    )
-    from utils.visual_renderer import (
-        render_cmo, render_fmo, render_threat_coverage,
-        render_requirements_traceability, render_vendor_positioning
-    )
-    import plotly.graph_objects as go
-    VISUALS_AVAILABLE = True
-except Exception as _ve:
-    VISUALS_AVAILABLE = False
+import json
+import time
+from openai import OpenAI
 
-SAMPLE_RFP = """
-REQUEST FOR PROPOSAL - CYBERSECURITY SOLUTION
-Organization: HDFC Securities Limited
-RFP Reference: RFP-HDFC-CSEC-2025-047
-Date: March 2025
-Estimated Value: INR 45-60 Crores | Contract: 3+2 Years
-
-EXECUTIVE OVERVIEW
-HDFC Securities Limited, a leading stockbroking firm with 3.2 million active clients and INR 8,000 crores daily transaction volume, is undertaking a comprehensive cybersecurity transformation. Operating across 287 branches, 3 data centers, and hybrid cloud (AWS + Azure), the organization requires an integrated security platform addressing SIEM, EDR, Zero Trust, Cloud Security, Network Security, and GRC.
-
-ENVIRONMENT: 12,500 employees, 8,500 Windows endpoints, 1,200 Linux servers, 650 Mac devices, 3,400 mobile devices, 47 critical applications, 1,200 network devices.
-
-REQUIREMENTS:
-SIEM: 50,000 EPS ingestion, UEBA, SOAR with 50 playbooks, ServiceNow integration, 7-year retention, BFSI threat rules.
-EDR: Full coverage across all endpoints, ransomware auto-isolation in 30 seconds, MDR 24x7, air-gapped trading floor support.
-IAM/PAM: MFA for 12,500 users, PAM for 380 privileged accounts, JIT/JEA, SSO for 47 apps, passwordless auth.
-Cloud: CSPM for AWS/Azure, CWPP for 350 VMs, container security for 40 Kubernetes clusters, 120 API protection.
-Network: NGFW for 3 DCs, IDS/IPS, WAF for 23 apps, SD-WAN for 287 branches, DDoS 500Gbps, ZTNA for 4,300 contractors.
-GRC: RBI Cybersecurity Framework, SEBI CSCRF, PCI-DSS v4.0, ISO 27001:2022, automated audit evidence, 200 vendor assessments.
-
-COMMERCIAL: 24x7x365 SOC support IST, offices mandatory in 5 cities, Indian data residency required, 45-day mandatory POC, Phase 1 delivery 90 days.
-"""
-
-st.set_page_config(page_title="CyberPresales AI", page_icon="🛡️", layout="wide", initial_sidebar_state="expanded")
-
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
-:root {
-    --bg:#0d0f14; --surface:#13161e; --surface2:#191d28; --surface3:#1e2330;
-    --border:#252b38; --border2:#2e3547;
-    --accent:#4f8ef7; --green:#34d399; --amber:#fbbf24; --red:#f87171; --purple:#a78bfa;
-    --text:#e8eaf0; --text2:#9aa0b4; --text3:#5c6480;
-}
-html,body,[class*="css"]{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--text);}
-.stApp{background:var(--bg);}
-section[data-testid="stSidebar"]{background:var(--surface)!important;border-right:1px solid var(--border)!important;}
-.corp-header{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.8rem 2.5rem;margin-bottom:1.5rem;display:flex;align-items:center;justify-content:space-between;}
-.corp-title{font-family:'Playfair Display',serif;font-size:1.7rem;font-weight:700;color:var(--text);}
-.corp-title span{color:var(--accent);}
-.corp-sub{font-size:0.8rem;color:var(--text3);margin-top:0.3rem;font-weight:300;}
-.corp-badge{display:inline-flex;align-items:center;background:rgba(79,142,247,0.08);border:1px solid rgba(79,142,247,0.2);color:var(--accent);padding:0.2rem 0.65rem;border-radius:4px;font-size:0.68rem;font-family:'IBM Plex Mono',monospace;margin-right:0.4rem;margin-top:0.7rem;}
-.section-label{font-size:0.65rem;font-weight:600;letter-spacing:0.15em;text-transform:uppercase;color:var(--text3);margin-bottom:0.8rem;padding-bottom:0.4rem;border-bottom:1px solid var(--border);}
-.content-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1.8rem;margin-bottom:1rem;}
-.content-card p{font-size:0.875rem;line-height:1.9;color:var(--text2);white-space:pre-wrap;}
-.metric-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1.2rem 1.4rem;}
-.metric-label{font-size:0.65rem;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:var(--text3);margin-bottom:0.5rem;}
-.metric-value{font-family:'Playfair Display',serif;font-size:1.9rem;font-weight:700;color:var(--accent);line-height:1;}
-.domain-pill{display:inline-flex;align-items:center;padding:0.35rem 0.9rem;border-radius:6px;font-size:0.78rem;font-weight:500;margin:0.2rem;border:1px solid;}
-.pill-blue{background:rgba(79,142,247,0.08);border-color:rgba(79,142,247,0.25);color:#7eb3ff;}
-.pill-green{background:rgba(52,211,153,0.08);border-color:rgba(52,211,153,0.25);color:#6ee7b7;}
-.pill-amber{background:rgba(251,191,36,0.08);border-color:rgba(251,191,36,0.25);color:#fcd34d;}
-.pill-red{background:rgba(248,113,113,0.08);border-color:rgba(248,113,113,0.25);color:#fca5a5;}
-.pill-purple{background:rgba(167,139,250,0.08);border-color:rgba(167,139,250,0.25);color:#c4b5fd;}
-.pill-teal{background:rgba(56,189,248,0.08);border-color:rgba(56,189,248,0.25);color:#7dd3fc;}
-.info-row{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:1rem 1.4rem;margin-bottom:0.8rem;font-size:0.82rem;color:var(--text2);line-height:1.7;}
-.info-label{font-size:0.65rem;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--text3);margin-bottom:0.3rem;}
-.chat-bubble-user{background:var(--surface2);border:1px solid var(--border2);border-left:3px solid var(--accent);padding:0.9rem 1.2rem;border-radius:0 8px 8px 0;margin-bottom:0.6rem;font-size:0.85rem;color:var(--text);}
-.chat-bubble-ai{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--green);padding:0.9rem 1.2rem;border-radius:0 8px 8px 0;margin-bottom:1rem;font-size:0.85rem;color:var(--text2);line-height:1.8;white-space:pre-wrap;}
-.chat-who{font-size:0.63rem;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:0.4rem;}
-.chat-who.user{color:var(--accent);} .chat-who.ai{color:var(--green);}
-.export-bar{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:1rem 1.5rem;margin-bottom:1.5rem;display:flex;align-items:center;gap:1rem;}
-.stButton>button{background:var(--surface2)!important;color:var(--text)!important;border:1px solid var(--border2)!important;border-radius:6px!important;font-family:'IBM Plex Sans',sans-serif!important;font-size:0.82rem!important;font-weight:500!important;padding:0.5rem 1.3rem!important;transition:all 0.15s!important;}
-.stButton>button:hover{background:var(--surface3)!important;border-color:var(--accent)!important;color:var(--accent)!important;}
-.stTabs [data-baseweb="tab-list"]{background:var(--surface);border-radius:8px;padding:0.3rem;border:1px solid var(--border);gap:0.1rem;}
-.stTabs [data-baseweb="tab"]{font-family:'IBM Plex Sans',sans-serif!important;font-size:0.78rem!important;font-weight:500!important;color:var(--text3)!important;border-radius:6px!important;padding:0.45rem 0.9rem!important;}
-.stTabs [aria-selected="true"]{background:var(--surface3)!important;color:var(--text)!important;}
-.stTextInput input,.stTextArea textarea{background:var(--surface2)!important;border:1px solid var(--border2)!important;color:var(--text)!important;font-family:'IBM Plex Sans',sans-serif!important;font-size:0.85rem!important;border-radius:6px!important;}
-hr{border-color:var(--border)!important;margin:1rem 0!important;}
-::-webkit-scrollbar{width:4px;height:4px;} ::-webkit-scrollbar-track{background:var(--bg);} ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px;}
-[data-testid="stFileUploader"]{background:var(--surface)!important;border:1px dashed var(--border2)!important;border-radius:10px!important;}
-</style>
-""", unsafe_allow_html=True)
-
-# Session state
-for key in ["rfp_text","file_name","customer_brief","pain_analysis","solution_rec","competitive","product_map","exec_summary","domains","vis_cmo","vis_fmo","vis_threat","vis_traceability","vis_vendor","doc_summaries"]:
-    if key not in st.session_state:
-        st.session_state[key] = None
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
-
-# Sidebar
-with st.sidebar:
-    st.markdown("<div style='font-family:Playfair Display,serif;font-size:1rem;font-weight:700;color:#e8eaf0;padding:0 0.5rem 0.3rem'>CyberPresales <span style=\"color:#4f8ef7\">AI</span></div>", unsafe_allow_html=True)
-    st.markdown("<div style='font-size:0.7rem;color:#5c6480;padding:0 0.5rem 1.2rem;font-family:IBM Plex Mono,monospace'>by Yash Mehrotra · v3.0</div>", unsafe_allow_html=True)
-    st.markdown("---")
-    api_key = st.secrets.get("GROQ_API_KEY", "") if hasattr(st, "secrets") else ""
+def get_client():
+    api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
-        api_key = st.text_input("Groq API Key", type="password", placeholder="gsk_...")
-    if api_key:
-        os.environ["GROQ_API_KEY"] = api_key
-        st.success("✓ Connected")
-    st.markdown("---")
-    st.markdown("<div style='font-size:0.63rem;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:#5c6480;margin-bottom:0.6rem'>Intelligence Modules</div>", unsafe_allow_html=True)
-    modules = ["Customer Brief", "Pain Analysis", "Solution Recommendation", "Competitive Intelligence", "Product Mapping", "Executive Summary", "Domain Classification", "Chat with RFP"]
-    for m in modules:
-        st.markdown(f"<div style='font-size:0.76rem;color:#9aa0b4;padding:0.15rem 0'>· {m}</div>", unsafe_allow_html=True)
-    if st.session_state.rfp_text:
-        st.markdown("---")
-        st.markdown(f"<div style='font-size:0.63rem;color:#5c6480;font-weight:600;letter-spacing:0.1em;text-transform:uppercase'>Active Documents</div><div style='font-size:0.78rem;color:#4f8ef7;margin-top:0.3rem'>📄 {st.session_state.file_name}</div><div style='font-size:0.7rem;color:#5c6480;margin-top:0.2rem'>{len(st.session_state.rfp_text.split()):,} total words</div>", unsafe_allow_html=True)
-        if st.session_state.doc_summaries:
-            for doc in st.session_state.doc_summaries:
-                icon = "✓" if doc["status"] == "success" else "✗"
-                color = "#34d399" if doc["status"] == "success" else "#f87171"
-                st.markdown(f"<div style='font-size:0.7rem;color:{color};padding:0.1rem 0'>{icon} {doc['name']} · {doc.get('words',0):,}w</div>", unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("↺ Reset Session"):
-            for key in ["rfp_text","file_name","customer_brief","pain_analysis","solution_rec","competitive","product_map","exec_summary","domains","vis_cmo","vis_fmo","vis_threat","vis_traceability","vis_vendor","doc_summaries"]:
-                st.session_state[key] = None
-            st.session_state.chat_history = []
-            st.rerun()
+        raise ValueError("Groq API key not set")
+    return OpenAI(
+        api_key=api_key,
+        base_url="https://api.groq.com/openai/v1"
+    )
 
-# Header
-st.markdown("""
-<div class='corp-header'>
-    <div>
-        <div class='corp-title'>Cyber<span>Presales</span> AI · v3</div>
-        <div class='corp-sub'>Enterprise Presales Intelligence Platform · Customer Brief · Solution Architecture · Competitive Intel</div>
-        <div style='margin-top:0.6rem'>
-            <span class='corp-badge'>CUSTOMER INTEL</span><span class='corp-badge'>PAIN ANALYSIS</span>
-            <span class='corp-badge'>SOLUTION REC</span><span class='corp-badge'>COMPETITIVE</span>
-            <span class='corp-badge'>EXPORT DOCX+PPTX</span>
-        </div>
-    </div>
-    <div style='text-align:right'>
-        <div style='font-family:IBM Plex Mono,monospace;font-size:0.63rem;color:#5c6480;letter-spacing:0.05em'>POWERED BY</div>
-        <div style='font-family:Playfair Display,serif;font-size:1rem;color:#9aa0b4;margin-top:0.2rem'>Groq · LLaMA 3.3 · 70B</div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+MODEL = "llama-3.3-70b-versatile"
 
-# Upload
-if not st.session_state.rfp_text:
-    col1, col2 = st.columns([3,2])
-    with col1:
-        st.markdown("<div class='section-label'>Document Upload · Single or Multiple Files</div>", unsafe_allow_html=True)
+def truncate_text(text, max_chars=12000):
+    return text[:max_chars] if len(text) > max_chars else text
 
-        uploaded_files = st.file_uploader(
-            "Upload RFP Documents (PDF or Word — select multiple)",
-            type=["pdf","docx"],
-            accept_multiple_files=True,
-            label_visibility="collapsed"
-        )
 
-        if uploaded_files:
-            if not api_key:
-                st.warning("Please enter your Groq API Key in the sidebar.")
-            else:
-                with st.spinner(f"Extracting {len(uploaded_files)} document(s)..."):
-                    if len(uploaded_files) == 1:
-                        text = extract_text_from_file(uploaded_files[0])
-                        summaries = [{"name": uploaded_files[0].name, "words": len(text.split()) if text else 0, "status": "success" if text else "failed", "size": f"{uploaded_files[0].size//1024} KB"}]
-                        file_name = uploaded_files[0].name
-                    else:
-                        text, summaries = extract_multiple_files(uploaded_files)
-                        file_name = f"{len(uploaded_files)} documents merged"
+def call_llm(client, messages, max_tokens=1500, temperature=0.2):
+    """Central LLM caller with automatic retry on rate limit."""
+    max_retries = 4
+    wait_times  = [10, 20, 40, 60]  # seconds between retries
+    for attempt in range(max_retries):
+        try:
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            err = str(e).lower()
+            is_rate_limit = "rate" in err or "429" in err or "limit" in err or "quota" in err
+            if is_rate_limit and attempt < max_retries - 1:
+                time.sleep(wait_times[attempt])
+                continue
+            raise
 
-                    if text:
-                        st.session_state.rfp_text = text
-                        st.session_state.file_name = file_name
-                        st.session_state.doc_summaries = summaries
-                        st.rerun()
-                    else:
-                        st.error("Could not extract text. Please check your files.")
 
-        st.markdown("<br><div style='text-align:center;color:#5c6480;font-size:0.73rem;margin-bottom:0.8rem'>— or load sample —</div>", unsafe_allow_html=True)
-        c1,c2,c3 = st.columns([1,2,1])
-        with c2:
-            if st.button("Load Sample RFP →", use_container_width=True):
-                if not api_key:
-                    st.warning("Please enter your Groq API Key in the sidebar.")
-                else:
-                    st.session_state.rfp_text = SAMPLE_RFP
-                    st.session_state.file_name = "HDFC_Cybersecurity_RFP_2025.pdf"
-                    st.session_state.doc_summaries = [{"name": "HDFC_Cybersecurity_RFP_2025.pdf", "words": len(SAMPLE_RFP.split()), "status": "success", "size": "sample"}]
-                    st.rerun()
-    with col2:
-        st.markdown("<div class='section-label'>What You Get</div>", unsafe_allow_html=True)
-        for cap, desc in [
-            ("Customer Intelligence Brief", "Who they are, why this RFP, decision makers"),
-            ("Pain Point Analysis", "What they really need vs what they wrote"),
-            ("Solution Recommendation", "What to propose and exactly why"),
-            ("Competitive Landscape", "Who's bidding and how to win"),
-            ("Product Mapping", "Vendor-by-vendor with deal strategy"),
-            ("Word & PPT Export", "Ready-to-use proposal documents"),
-        ]:
-            st.markdown(f"<div class='info-row'><div class='info-label'>{cap}</div><div>{desc}</div></div>", unsafe_allow_html=True)
+def generate_customer_brief(rfp_text):
+    """One-pager: who is the customer, context, why this RFP now"""
+    client = get_client()
+    prompt = f"""You are a senior cybersecurity presales consultant preparing a customer intelligence brief before a major proposal.
 
-# Main
-else:
-    # Metrics
-    cols = st.columns(4)
-    metrics = [
-        ("Words Extracted", f"{len(st.session_state.rfp_text.split()):,}"),
-        ("Modules Run", str(sum(1 for k in ["customer_brief","pain_analysis","solution_rec","competitive","product_map","exec_summary"] if st.session_state.get(k)))),
-        ("Domains", str(len(st.session_state.domains.get("detected_domains",[]))) if isinstance(st.session_state.domains,dict) else "—"),
-        ("Chat Q&A", str(len(st.session_state.chat_history)//2)),
-    ]
-    for col, (label, val) in zip(cols, metrics):
-        with col:
-            st.markdown(f"<div class='metric-card'><div class='metric-label'>{label}</div><div class='metric-value'>{val}</div></div>", unsafe_allow_html=True)
+Analyze this RFP and produce a sharp, insightful ONE-PAGER that a presales consultant can read in 2 minutes before walking into a customer meeting.
 
-    st.markdown("<br>", unsafe_allow_html=True)
+Structure your response EXACTLY as follows:
 
-    # Export bar
-    st.markdown("<div class='section-label'>Export & Deliverables</div>", unsafe_allow_html=True)
-    ec1, ec2, ec3, ec4 = st.columns([2,1,1,2])
-    with ec1:
-        st.markdown("<div style='font-size:0.8rem;color:#9aa0b4;padding:0.4rem 0'>Generate proposal documents from your analysis:</div>", unsafe_allow_html=True)
-    with ec2:
-        if st.button("📄 Export Word", key="btn_word", use_container_width=True):
-            if not any([st.session_state.customer_brief, st.session_state.exec_summary]):
-                st.warning("Run at least Customer Brief and Executive Summary first.")
-            else:
-                with st.spinner("Generating Word document..."):
-                    try:
-                        from utils.export_word import generate_word_doc
-                        path = generate_word_doc(st.session_state)
-                        with open(path, "rb") as f:
-                            st.download_button("⬇️ Download Word", f, file_name="CyberPresales_Proposal.docx",
-                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key="dl_word")
-                    except Exception as e:
-                        st.error(f"Export error: {e}")
-    with ec3:
-        if st.button("📊 Export PPT", key="btn_ppt", use_container_width=True):
-            if not any([st.session_state.customer_brief, st.session_state.exec_summary]):
-                st.warning("Run at least Customer Brief and Executive Summary first.")
-            else:
-                with st.spinner("Generating PowerPoint..."):
-                    try:
-                        from utils.export_ppt import generate_ppt
-                        path = generate_ppt(st.session_state)
-                        with open(path, "rb") as f:
-                            st.download_button("⬇️ Download PPT", f, file_name="CyberPresales_Presentation.pptx",
-                                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation", key="dl_ppt")
-                    except Exception as e:
-                        st.error(f"Export error: {e}")
-    with ec4:
-        st.markdown("<div style='font-size:0.73rem;color:#5c6480;padding:0.4rem 0'>Tip: Run all analysis tabs first for richer exports</div>", unsafe_allow_html=True)
+## CUSTOMER SNAPSHOT
+Provide 4-5 sentences covering: who they are, industry vertical, size/scale, business model, market position. Make it specific — not generic industry description.
 
-    st.markdown("<br>", unsafe_allow_html=True)
+## BUSINESS CONTEXT & TRIGGERS
+Why is this RFP being released NOW? What business events, regulatory pressures, incidents, or strategic initiatives are likely driving this? Think like a detective — read between the lines of the RFP. What pain forced them to write this document?
 
-    tab1,tab2,tab3,tab4,tab5,tab6,tab7,tab8,tab9 = st.tabs([
-        "  Customer Brief  ","  Pain Analysis  ","  Solution Rec  ",
-        "  Competitive  ","  Product Mapping  ","  Executive Summary  ",
-        "  Domains  ","  Visuals  ","  Chat  "
-    ])
+## ORGANIZATIONAL SCALE
+Summarize the environment in crisp bullet points: users, endpoints, locations, cloud platforms, applications, transaction volumes — whatever is mentioned. This is for quick reference.
 
-    def render_tab(tab, session_key, btn_label, btn_key, generator_fn, title, about):
-        with tab:
-            st.markdown(f"<div class='section-label'>{title}</div>", unsafe_allow_html=True)
-            if not st.session_state[session_key]:
-                st.markdown(f"<div class='info-row'><div class='info-label'>About</div><div>{about}</div></div>", unsafe_allow_html=True)
-                if st.button(f"  {btn_label}  ", key=btn_key):
-                    with st.spinner(f"Generating {title.lower()}..."):
-                        st.session_state[session_key] = generator_fn(st.session_state.rfp_text)
-                        st.rerun()
-            else:
-                content = st.session_state[session_key]
-                if session_key == "product_map":
-                    sections = content.split("### ")
-                    for section in sections:
-                        if not section.strip():
-                            continue
-                        lines = section.strip().split("\n")
-                        domain_title = lines[0].strip()
-                        body = "\n".join(lines[1:]).strip()
-                        st.markdown(f"<div class='content-card' style='border-left:3px solid #4f8ef7;padding-left:1.2rem'><div style='font-size:1rem;font-weight:700;color:#e8eaf0;margin-bottom:0.6rem'>{domain_title}</div></div>", unsafe_allow_html=True)
-                        st.markdown(body)
-                else:
-                    st.markdown(f"<div class='content-card'><p>{content}</p></div>", unsafe_allow_html=True)
-                if st.button("↺ Regenerate", key=f"regen_{session_key}"):
-                    st.session_state[session_key] = None
-                    st.rerun()
+## KEY DECISION MAKERS (LIKELY)
+Based on the RFP content, who in the organization is likely involved in this decision? CISO, CTO, CFO, CRO, Board? What are their likely priorities and concerns?
 
-    render_tab(tab1, "customer_brief", "Generate Customer Brief", "btn_brief", generate_customer_brief,
-        "Customer Intelligence Brief",
-        "One-pager covering who the customer is, why this RFP was released, key decision makers, strategic priorities, and relationship entry points. Read this before any customer meeting.")
+## STRATEGIC PRIORITIES
+What are the top 3 things this organization is trying to achieve with this investment? Not technical features — business outcomes.
 
-    render_tab(tab2, "pain_analysis", "Run Pain Analysis", "btn_pain", generate_pain_analysis,
-        "Pain Point & Requirements Analysis",
-        "Deep analysis of surface requirements vs underlying business pains, ranked pain points with business impact, compliance pressures, technical debt, and red flags for vendors.")
+## RELATIONSHIP ENTRY POINTS
+What aspects of this RFP give a smart presales consultant the best opportunity to build rapport, demonstrate expertise, and differentiate from competition?
 
-    render_tab(tab3, "solution_rec", "Generate Solution Recommendation", "btn_solrec", generate_solution_recommendation,
-        "Solution Recommendation for Presales",
-        "Strategic recommendation on what solution to propose, architecture approach, implementation phasing, commercial strategy, proposal messaging framework, and POC strategy.")
+RFP:
+{truncate_text(rfp_text)}
 
-    render_tab(tab4, "competitive", "Analyze Competitive Landscape", "btn_comp", generate_competitive_landscape,
-        "Competitive Intelligence",
-        "Who is likely bidding, threat assessment by competitor, where we win vs lose, customer evaluation biases, counter-strategies, and winning conditions for this deal.")
+Be specific, insightful, and sharp. Avoid generic statements. Every line should be directly derived from or intelligently inferred from the RFP content."""
 
-    render_tab(tab5, "product_map", "Map Products & Vendors", "btn_prodmap", generate_product_mapping,
-        "Detailed Product & Vendor Mapping",
-        "Domain-by-domain vendor recommendations with primary and alternative options, specific justification tied to RFP requirements, integration notes, and deal strategy.")
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1500, temperature=0.3)
 
-    render_tab(tab6, "exec_summary", "Generate Executive Summary", "btn_execsum", generate_executive_summary,
-        "Executive Summary · Proposal Ready",
-        "Board-ready 500-600 word executive summary for C-level stakeholders. Covers security imperative, solution approach, business value, and value proposition. Ready to paste into your proposal.")
 
-    # Domains tab
-    with tab7:
-        st.markdown("<div class='section-label'>Cybersecurity Domain Classification</div>", unsafe_allow_html=True)
-        if not isinstance(st.session_state.domains, dict):
-            if st.button("  Classify Domains  ", key="btn_domains"):
-                with st.spinner("Classifying domains..."):
-                    st.session_state.domains = classify_domains(st.session_state.rfp_text)
-                    st.rerun()
-        else:
-            domains_list = st.session_state.domains.get("detected_domains", [])
-            pill_colors = ["pill-blue","pill-green","pill-amber","pill-red","pill-purple","pill-teal","pill-blue","pill-green"]
-            tags = "".join([f"<span class='domain-pill {pill_colors[i%len(pill_colors)]}'>{d}</span>" for i,d in enumerate(domains_list)])
-            st.markdown(f"<div class='content-card'><div class='info-label'>Detected Domains · {len(domains_list)} identified</div><div style='margin-top:0.8rem'>{tags}</div></div>", unsafe_allow_html=True)
+def generate_pain_analysis(rfp_text):
+    """Deep pain point and requirements analysis"""
+    client = get_client()
+    prompt = f"""You are a world-class cybersecurity presales consultant with 20 years of experience winning enterprise deals. You have a gift for understanding what customers REALLY need — not just what they wrote in the RFP.
 
-            details = st.session_state.domains.get("domain_details", {})
-            if details:
-                st.markdown("<div class='content-card'><div class='info-label'>Domain Details</div>", unsafe_allow_html=True)
-                for domain, detail in details.items():
-                    st.markdown(f"<div style='margin-bottom:0.8rem'><div style='font-size:0.8rem;color:#e8eaf0;font-weight:500;margin-bottom:0.3rem'>{domain}</div><div style='font-size:0.82rem;color:#9aa0b4;line-height:1.7'>{detail}</div></div>", unsafe_allow_html=True)
-                st.markdown("</div>", unsafe_allow_html=True)
+Analyze this RFP and produce a deep pain point analysis structured as follows:
 
-            reasoning = st.session_state.domains.get("reasoning", "")
-            if reasoning:
-                st.markdown(f"<div class='content-card'><div class='info-label'>Strategic Analysis</div><p>{reasoning}</p></div>", unsafe_allow_html=True)
+## SURFACE REQUIREMENTS vs UNDERLYING PAINS
+For each major requirement area, identify:
+- What they ASKED for (surface requirement)
+- What they ACTUALLY NEED (underlying business pain)
+- The RISK they are trying to mitigate
+- The COST of inaction (business impact if not solved)
 
-    # Visuals tab
-    with tab8:
-        st.markdown("<div class='section-label'>Visual Intelligence · CMO · FMO · Threat Coverage · Traceability · Vendor Map</div>", unsafe_allow_html=True)
-        if not VISUALS_AVAILABLE:
-            st.warning('Visuals require: pip install plotly matplotlib')
-        else:
-            vcol1, vcol2 = st.columns(2)
-            with vcol1:
-                if st.button('  Generate CMO Diagram  ', key='btn_cmo'):
-                    with st.spinner('Analyzing current environment...'):
-                        st.session_state.vis_cmo = extract_cmo_data(st.session_state.rfp_text)
-                        st.rerun()
-                if st.button('  Generate FMO Diagram  ', key='btn_fmo'):
-                    with st.spinner('Building future architecture...'):
-                        st.session_state.vis_fmo = extract_fmo_data(st.session_state.rfp_text)
-                        st.rerun()
-                if st.button('  Threat Coverage Matrix  ', key='btn_threat'):
-                    with st.spinner('Mapping threat coverage...'):
-                        st.session_state.vis_threat = extract_threat_coverage(st.session_state.rfp_text)
-                        st.rerun()
-            with vcol2:
-                if st.button('  Requirements Traceability  ', key='btn_trace'):
-                    with st.spinner('Building traceability matrix...'):
-                        st.session_state.vis_traceability = extract_requirements_traceability(st.session_state.rfp_text)
-                        st.rerun()
-                if st.button('  Vendor Positioning Map  ', key='btn_vendor'):
-                    with st.spinner('Analyzing vendor landscape...'):
-                        st.session_state.vis_vendor = extract_vendor_positioning(st.session_state.rfp_text)
-                        st.rerun()
-                if any([st.session_state.vis_cmo, st.session_state.vis_fmo, st.session_state.vis_threat, st.session_state.vis_traceability, st.session_state.vis_vendor]):
-                    if st.button('↺ Clear All Visuals', key='btn_clrvis'):
-                        for vk in ['vis_cmo','vis_fmo','vis_threat','vis_traceability','vis_vendor']:
-                            st.session_state[vk] = None
-                        st.rerun()
+## TOP 5 CRITICAL PAIN POINTS (RANKED)
+Rank the 5 most critical pain points this organization is experiencing. For each:
+1. Pain point name
+2. Evidence from RFP (quote or reference the specific requirement)
+3. Business impact if not addressed
+4. Urgency level (Critical/High/Medium)
 
-            if st.session_state.vis_cmo:
-                st.markdown("<div class='section-label' style='margin-top:1.5rem'>Current Mode of Operations</div>", unsafe_allow_html=True)
-                st.plotly_chart(render_cmo(st.session_state.vis_cmo), use_container_width=True)
-            if st.session_state.vis_fmo:
-                st.markdown("<div class='section-label' style='margin-top:1rem'>Future Mode of Operations</div>", unsafe_allow_html=True)
-                st.plotly_chart(render_fmo(st.session_state.vis_fmo), use_container_width=True)
-            if st.session_state.vis_threat:
-                st.markdown("<div class='section-label' style='margin-top:1rem'>Threat Coverage Matrix</div>", unsafe_allow_html=True)
-                st.plotly_chart(render_threat_coverage(st.session_state.vis_threat), use_container_width=True)
-            if st.session_state.vis_traceability:
-                st.markdown("<div class='section-label' style='margin-top:1rem'>Requirements Traceability Matrix</div>", unsafe_allow_html=True)
-                st.plotly_chart(render_requirements_traceability(st.session_state.vis_traceability), use_container_width=True)
-            if st.session_state.vis_vendor:
-                st.markdown("<div class='section-label' style='margin-top:1rem'>Vendor Positioning Map</div>", unsafe_allow_html=True)
-                st.plotly_chart(render_vendor_positioning(st.session_state.vis_vendor), use_container_width=True)
+## COMPLIANCE & REGULATORY PRESSURE
+What regulatory obligations are driving this? What are the consequences of non-compliance? Be specific about penalties, deadlines, and audit implications.
 
-    # Chat tab
-    with tab9:
-        st.markdown("<div class='section-label'>Interactive RFP Intelligence</div>", unsafe_allow_html=True)
-        for i in range(0, len(st.session_state.chat_history), 2):
-            if i < len(st.session_state.chat_history):
-                st.markdown(f"<div class='chat-bubble-user'><div class='chat-who user'>You</div>{st.session_state.chat_history[i]}</div>", unsafe_allow_html=True)
-            if i+1 < len(st.session_state.chat_history):
-                st.markdown(f"<div class='chat-bubble-ai'><div class='chat-who ai'>AI Consultant</div>{st.session_state.chat_history[i+1]}</div>", unsafe_allow_html=True)
-        if not st.session_state.chat_history:
-            st.markdown("<div style='color:#5c6480;font-size:0.72rem;margin-bottom:0.8rem;text-transform:uppercase;font-weight:600;letter-spacing:0.08em'>Suggested Questions</div>", unsafe_allow_html=True)
-            suggestions = ["What is the total contract value and commercial model?","What are the mandatory vs preferred requirements?","What is the implementation timeline and key milestones?","Which compliance frameworks are mandatory?","What support model is required?","What makes this deal strategically important?"]
-            cols = st.columns(2)
-            for idx, sug in enumerate(suggestions):
-                with cols[idx%2]:
-                    if st.button(sug, key=f"sug_{idx}", use_container_width=True):
-                        with st.spinner("Analyzing..."):
-                            answer = chat_with_rfp(st.session_state.rfp_text, sug, st.session_state.chat_history)
-                            st.session_state.chat_history.extend([sug, answer])
-                            st.rerun()
-        st.markdown("<br>", unsafe_allow_html=True)
-        user_q = st.text_input("Ask anything about this RFP...", placeholder="e.g. What are the data residency requirements?", key="chat_input")
-        c1,c2 = st.columns([5,1])
-        with c2:
-            if st.button("Send →", key="btn_send", use_container_width=True) and user_q:
-                with st.spinner("Analyzing..."):
-                    answer = chat_with_rfp(st.session_state.rfp_text, user_q, st.session_state.chat_history)
-                    st.session_state.chat_history.extend([user_q, answer])
-                    st.rerun()
-        if st.session_state.chat_history:
-            if st.button("Clear Chat", key="btn_clearchat"):
-                st.session_state.chat_history = []
-                st.rerun()
+## TECHNICAL DEBT & LEGACY CHALLENGES
+Based on the requirements, what legacy technology problems are they likely trying to solve? What does their current environment tell you about their technical debt?
+
+## QUICK WINS vs LONG-TERM TRANSFORMATION
+Which requirements represent immediate tactical fixes vs strategic transformation? This helps structure the proposal and implementation approach.
+
+## RED FLAGS & RISKS FOR VENDOR
+What requirements could be problematic? Unrealistic timelines? Overly complex integrations? Budget misalignment? Flag these honestly so the presales team is prepared.
+
+RFP:
+{truncate_text(rfp_text)}
+
+Be analytical, honest, and commercially aware. A great presales consultant uses this analysis to build a proposal that speaks directly to pain — not just features."""
+
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=2000, temperature=0.2)
+
+
+def generate_solution_recommendation(rfp_text):
+    """What should we propose and why — presales recommendation"""
+    client = get_client()
+    prompt = f"""You are a Principal Solution Architect and presales strategist. Your job is to tell the sales team exactly what solution to propose and why — with full commercial and technical rationale.
+
+Based on this RFP, produce a Solution Recommendation Report:
+
+## RECOMMENDED SOLUTION ARCHITECTURE
+Describe the proposed solution at a high level. What is the overall architecture? Platform approach vs best-of-breed? On-premise, cloud, or hybrid? Why is this the right architectural approach for THIS customer?
+
+## CORE SOLUTION COMPONENTS (What to propose for each domain)
+For each domain required in the RFP:
+- Recommended solution component
+- Specific reason it fits THIS customer's requirements
+- Key capabilities to highlight
+- Implementation consideration
+
+## SOLUTION DIFFERENTIATORS
+What makes our proposed solution uniquely suited for this customer? What 3-5 points should the proposal hammer home repeatedly?
+
+## PROPOSED IMPLEMENTATION PHASING
+How should the solution be delivered? Propose a phased approach that:
+- Delivers quick wins in Phase 1 to build confidence
+- Addresses the most critical requirements first
+- Manages risk appropriately
+- Aligns with their stated timeline
+
+## COMMERCIAL STRATEGY
+- What pricing model works best for this customer?
+- Where is there room to be competitive?
+- What can be bundled to increase deal value?
+- What managed services opportunities exist?
+
+## PROPOSAL MESSAGING FRAMEWORK
+The 5 key messages that should run through the entire proposal:
+1. Message about understanding their business
+2. Message about technical fit
+3. Message about risk reduction
+4. Message about ROI/value
+5. Message about partnership/long-term
+
+## POC STRATEGY
+What should be demonstrated in the POC to maximize win probability? What KPIs should be measured? What use cases show the solution at its best?
+
+RFP:
+{truncate_text(rfp_text)}
+
+This is a strategic recommendation document. Be opinionated, specific, and commercially smart."""
+
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=2000, temperature=0.3)
+
+
+def generate_competitive_landscape(rfp_text):
+    """Who else is bidding and how to win"""
+    client = get_client()
+    prompt = f"""You are a competitive intelligence expert in enterprise cybersecurity with deep knowledge of how deals are won and lost.
+
+Based on this RFP, produce a competitive landscape analysis:
+
+## LIKELY COMPETITORS IN THIS DEAL
+Based on the requirements, scale, and industry — which vendors are most likely to bid? For each likely competitor:
+- Vendor name
+- Why they are a likely bidder
+- Their typical approach for deals like this
+- Their likely pricing strategy
+
+## COMPETITIVE THREAT ASSESSMENT
+| Vendor | Threat Level | Their Strongest Cards | Their Weaknesses |
+Provide this analysis for top 4-5 competitors.
+
+## WHERE WE WIN vs WHERE WE LOSE
+Against each major competitor:
+- Where our solution is clearly superior
+- Where they may outperform us
+- The specific requirements where the battle will be won or lost
+
+## CUSTOMER EVALUATION BIASES
+Based on the RFP language, evaluation criteria, and requirements — what does this tell us about the customer's existing vendor relationships? Any incumbents? Any obvious preferences?
+
+## COUNTER-STRATEGY
+For each major competitor, what is the counter-strategy?
+- What FUD (Fear, Uncertainty, Doubt) can we legitimately raise about their solution?
+- What proof points, case studies, or references should we lead with?
+- What TCO arguments work in our favor?
+
+## WINNING CONDITIONS
+What 3-5 things must happen for us to win this deal? What are the absolute must-haves in our proposal and POC to beat the competition?
+
+## LANDMINES TO AVOID
+What mistakes do vendors typically make in deals like this that cause them to lose? What should we NOT do?
+
+RFP:
+{truncate_text(rfp_text)}
+
+Be realistic, honest, and strategically sharp. The goal is to help the sales team go in with eyes wide open."""
+
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=2000, temperature=0.3)
+
+
+def generate_product_mapping(rfp_text):
+    """Detailed vendor and product recommendations"""
+    client = get_client()
+    prompt = f"""You are a senior cybersecurity solution architect with commercial awareness. You know every major vendor platform deeply — their strengths, weaknesses, pricing models, and ideal use cases.
+
+Analyze this RFP and produce a DETAILED product mapping for EACH domain:
+
+For every cybersecurity domain required in this RFP, provide:
+
+### [DOMAIN NAME]
+**Requirement Summary:** (2-3 sentences on what the customer specifically needs)
+
+**PRIMARY RECOMMENDATION: [Vendor - Specific Product]**
+- Why this fits: (3-4 specific reasons tied to THIS RFP's requirements)
+- Key capabilities addressing requirements: (bullet list)
+- Deployment model for this customer: (how it would be deployed)
+- Typical deal size for this scale: (rough pricing indication)
+- Reference customers in same industry: (if known)
+
+**ALTERNATIVE: [Vendor - Specific Product]**  
+- When to recommend this instead: (specific scenario)
+- Key differentiator vs primary: (what they do better)
+- Potential concern: (honest weakness)
+
+**INTEGRATION NOTE:** How does this solution integrate with other recommended components?
+
+Cover ALL of these domains if relevant to the RFP:
+- SIEM/SOC Platform
+- Endpoint Detection & Response (EDR/XDR)  
+- Zero Trust / Identity & Access Management
+- Cloud Security (CSPM/CWPP/CNAPP)
+- Network Security (NGFW/IDS/WAF)
+- Governance, Risk & Compliance (GRC)
+- Privileged Access Management (PAM)
+- Threat Intelligence
+
+Vendors to reference: Palo Alto Networks (Cortex XSIAM, XDR, Prisma Cloud, NGFW), Microsoft (Sentinel, Defender XDR, Entra ID, Defender for Cloud, Purview), CrowdStrike (Falcon platform), SentinelOne (Singularity), Splunk (Enterprise Security), IBM QRadar, Okta (Identity Cloud), CyberArk (Privileged Access), BeyondTrust, Zscaler (ZIA/ZPA), Fortinet (FortiGate/FortiSIEM), Check Point, Tenable (Vulnerability Management), Rapid7, Wiz, Orca Security.
+
+RFP:
+{truncate_text(rfp_text)}
+
+Be specific, opinionated, and commercially grounded. Every recommendation must be justified by actual RFP requirements."""
+
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=3000, temperature=0.2)
+
+
+def generate_executive_summary(rfp_text):
+    """Board-ready executive summary for proposal"""
+    client = get_client()
+    prompt = f"""You are a Chief Security Strategist writing the executive summary for a winning proposal. This will be read by the CISO, CTO, CFO, and potentially the Board.
+
+Write a powerful, persuasive executive summary (500-600 words) structured as:
+
+**[Opening — 2-3 sentences]**
+Acknowledge the organization by name (if mentioned), their strategic position, and the significance of this security investment decision. Show you understand their business — not just their IT.
+
+**The Security Imperative [1 paragraph]**
+Articulate the specific threats and challenges facing this organization in their industry context. Use industry statistics and threat landscape data relevant to their sector. Show urgency without fearmongering.
+
+**Our Understanding of Your Requirements [1 paragraph]**
+Demonstrate deep understanding of their specific requirements. Reference key aspects — scale, compliance obligations, integration needs. This paragraph says "we read your RFP carefully."
+
+**Proposed Solution Approach [2 paragraphs]**
+Describe the solution philosophy and approach. Why platform over point solutions? How does the architecture address their specific environment? Speak in outcomes — "your SOC team will detect threats in under 5 minutes" not "our SIEM has ML-based correlation."
+
+**Business Value & Risk Reduction [1 paragraph]**
+Quantify the value. Breach cost reduction, compliance risk mitigation, operational efficiency gains, faster incident response. Use numbers where possible.
+
+**Why [Us/This Solution] [1 paragraph]**
+The unique value proposition. What makes this proposal the right choice. References to industry experience, similar deployments, local presence, support model.
+
+**Call to Action [2-3 sentences]**
+Confident close. Next steps. Expression of partnership commitment.
+
+TONE: Confident, authoritative, business-first. No acronyms without explanation. Write as if this document alone could win the deal.
+
+RFP:
+{truncate_text(rfp_text)}"""
+
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1200, temperature=0.3)
+
+
+def classify_domains(rfp_text):
+    """Domain classification"""
+    client = get_client()
+    prompt = f"""Analyze this RFP and identify cybersecurity domains required.
+
+Respond with ONLY valid JSON:
+{{
+  "detected_domains": ["Domain 1", "Domain 2"],
+  "domain_details": {{
+    "Domain 1": "Specific requirements from RFP",
+    "Domain 2": "Specific requirements from RFP"
+  }},
+  "reasoning": "Overall analysis",
+  "priority_domains": ["Most critical", "Second most critical"],
+  "coverage_score": "High/Medium/Low"
+}}
+
+RFP: {truncate_text(rfp_text)}"""
+
+    content = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=800, temperature=0.1).strip()
+    if "```json" in content:
+        content = content.split("```json")[1].split("```")[0].strip()
+    elif "```" in content:
+        content = content.split("```")[1].split("```")[0].strip()
+    start = content.find("{")
+    end = content.rfind("}") + 1
+    if start != -1 and end > start:
+        content = content[start:end]
+    try:
+        result = json.loads(content)
+        if not isinstance(result, dict):
+            raise ValueError("Not a dict")
+        if "detected_domains" not in result:
+            result["detected_domains"] = ["SIEM/SOC", "Network Security"]
+        if "reasoning" not in result:
+            result["reasoning"] = "Domains detected from RFP content."
+        return result
+    except:
+        return {
+            "detected_domains": ["SIEM/SOC", "Endpoint Security", "Network Security", "Compliance & GRC"],
+            "domain_details": {},
+            "reasoning": "Multiple cybersecurity domains identified.",
+            "priority_domains": ["SIEM/SOC", "Endpoint Security"],
+            "coverage_score": "High"
+        }
+
+
+def chat_with_rfp(rfp_text, question, chat_history):
+    """Interactive Q&A"""
+    client = get_client()
+    messages = [{
+        "role": "system",
+        "content": f"""You are an expert cybersecurity presales consultant. You have thoroughly analyzed this RFP and answer questions with precision, depth, and commercial awareness.
+
+When answering:
+- Be specific and reference actual RFP content
+- Provide presales context and recommendations
+- Flag ambiguities or areas needing clarification
+- Use structured responses for complex questions
+
+RFP: {truncate_text(rfp_text, 8000)}"""
+    }]
+
+    history = chat_history[-12:] if len(chat_history) > 12 else chat_history
+    for i in range(0, len(history), 2):
+        if i < len(history):
+            messages.append({"role": "user", "content": history[i]})
+        if i+1 < len(history):
+            messages.append({"role": "assistant", "content": history[i+1]})
+    messages.append({"role": "user", "content": question})
+
+    return call_llm(client, messages, max_tokens=800, temperature=0.2)
