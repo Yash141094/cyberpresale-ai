@@ -25,10 +25,10 @@ TEXT3    = "#5c6480"
 
 def _base_layout(title="", height=500):
     return dict(
-        title=dict(text=title, font=dict(color=TEXT, size=16, family="IBM Plex Sans"), x=0.02, xanchor="left"),
+        title=dict(text=title, font=dict(color=TEXT, size=16, family="Arial"), x=0.02, xanchor="left"),
         paper_bgcolor=SURFACE,
         plot_bgcolor=SURFACE2,
-        font=dict(color=TEXT2, family="IBM Plex Sans", size=12),
+        font=dict(color=TEXT2, family="Arial", size=12),
         margin=dict(l=20, r=20, t=50, b=20),
         height=height,
     )
@@ -67,7 +67,7 @@ def render_cmo(data):
                 "<b>Risk Level</b>",
             ],
             fill_color=["#1e1b4b", "#1e1b4b", "#7f1d1d", "#1e1b4b"],
-            font=dict(color=TEXT, size=11, family="IBM Plex Sans"),
+            font=dict(color=TEXT, size=11, family="Arial"),
             align="left",
             height=36,
             line_color=BORDER,
@@ -80,7 +80,7 @@ def render_cmo(data):
                 row_colors_issue,
                 risk_colors,
             ],
-            font=dict(color=TEXT2, size=10, family="IBM Plex Sans"),
+            font=dict(color=TEXT2, size=10, family="Arial"),
             align="left",
             height=40,
             line_color=BORDER,
@@ -138,7 +138,7 @@ def render_fmo(data):
                 "<b>Key Capabilities Delivered</b>",
             ],
             fill_color=["#064e3b", "#064e3b", "#064e3b", "#064e3b"],
-            font=dict(color=TEXT, size=11, family="IBM Plex Sans"),
+            font=dict(color=TEXT, size=11, family="Arial"),
             align="left",
             height=36,
             line_color=BORDER,
@@ -146,7 +146,7 @@ def render_fmo(data):
         cells=dict(
             values=[layer_names, vendors, solutions, capabilities],
             fill_color=[row_bg, vend_bg, sol_bg, cap_bg],
-            font=dict(color=TEXT2, size=10, family="IBM Plex Sans"),
+            font=dict(color=TEXT2, size=10, family="Arial"),
             align="left",
             height=40,
             line_color=BORDER,
@@ -226,7 +226,7 @@ def render_threat_coverage(data):
         header=dict(
             values=header_vals,
             fill_color=["#1e1b4b"] + ["#1e3a5f"] * len(solutions),
-            font=dict(color=TEXT, size=11, family="IBM Plex Sans"),
+            font=dict(color=TEXT, size=11, family="Arial"),
             align="center",
             height=38,
             line_color=BORDER,
@@ -237,7 +237,7 @@ def render_threat_coverage(data):
             font=dict(
                 color=[TEXT] + col_font,
                 size=10,
-                family="IBM Plex Sans"
+                family="Arial"
             ),
             align=["left"] + ["center"] * len(solutions),
             height=34,
@@ -297,7 +297,7 @@ def render_requirements_traceability(data):
                     "<b>Priority</b>", "<b>Proposed Solution</b>",
                     "<b>Coverage</b>", "<b>Notes</b>"],
             fill_color=ACCENT,
-            font=dict(color=TEXT, size=11, family="IBM Plex Sans"),
+            font=dict(color=TEXT, size=11, family="Arial"),
             align="left",
             height=32,
             line_color=BORDER,
@@ -313,7 +313,7 @@ def render_requirements_traceability(data):
                 cov_colors,
                 [SURFACE2]*len(notes),
             ],
-            font=dict(color=TEXT2, size=10, family="IBM Plex Sans"),
+            font=dict(color=TEXT2, size=10, family="Arial"),
             align="left",
             height=28,
             line_color=BORDER,
@@ -374,7 +374,7 @@ def render_vendor_positioning(data):
     for label, x, y in [("LEADERS", 7.5, 10.2), ("VISIONARIES", 2.5, 10.2),
                          ("CHALLENGERS", 7.5, 0.3), ("NICHE", 2.5, 0.3)]:
         fig.add_annotation(text=label, x=x, y=y, showarrow=False,
-                           font=dict(color=TEXT3, size=9, family="IBM Plex Sans"),
+                           font=dict(color=TEXT3, size=9, family="Arial"),
                            xanchor="center")
 
     # Vendor bubbles
@@ -394,7 +394,7 @@ def render_vendor_positioning(data):
             text=[f"  {name}{'  ★' if is_recommended else ''}"],
             textposition="middle right",
             textfont=dict(color=TEXT if is_recommended else TEXT2, size=11,
-                          family="IBM Plex Sans"),
+                          family="Arial"),
             hovertemplate=(
                 f"<b>{name}</b><br>"
                 f"Completeness: {completeness[i]}/10<br>"
