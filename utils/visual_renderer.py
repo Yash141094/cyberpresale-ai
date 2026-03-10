@@ -34,147 +34,186 @@ def _base_layout(title="", height=500):
     )
 
 
-def render_cmo(data):
-    """Current Mode of Operations — horizontal layered table diagram"""
-    layers = data.get("layers", [])
-    org    = data.get("org_name", "Customer")
-    risk   = data.get("risk_level", "High")
-    gaps   = data.get("key_gaps", [])
+def _safe_join(val, default="Not specified"):
+    """Safely join a value that might be a list, string, or None."""
+    if val is None:
+        return default
+    if isinstance(val, list):
+        return "<br>".join(str(v) for v in val) if val else default
+    return str(val)  # AI returned a string — use it directly
 
-    if not layers:
+
+def _safe_list(val, default=None):
+    """Ensure a value is always a list."""
+    if val is None:
+        return default or []
+    if isinstance(val, list):
+        return val
+    return [val]  # wrap string in list
+
+
+def render_cmo(data):
+    """CMO — Requirements table with support hours, timezone, VM frequency"""
+    rows    = data.get("rows", [])
+    org     = data.get("org_name", "Customer")
+    industry= data.get("industry", "Enterprise")
+
+    if not rows:
         return None
 
-    colors_map = {"red": "#ef4444", "orange": "#f59e0b", "yellow": "#fde68a", "green": "#10b981"}
-    risk_label = {"red": "HIGH RISK", "orange": "MEDIUM RISK", "yellow": "LOW RISK", "green": "SECURED"}
+    # Colour code licence owner
+    def licence_color(val):
+        m = {"Customer": "#1e3a5f", "Supplier": "#064e3b", "Shared": "#3b2a6e", "None": "#450a0a"}
+        return m.get(str(val), SURFACE2)
 
-    # Build table rows — one row per layer
-    layer_names   = [f"<b>{l['name']}</b>" for l in layers]
-    current_state = ["<br>".join(l.get("items", ["Not specified"])) for l in layers]
-    issues        = ["<br>".join(l.get("issues", ["No issues identified"])) for l in layers]
-    risk_labels   = [risk_label.get(l.get("color", "orange"), "MEDIUM RISK") for l in layers]
+    # Colour code support hours
+    def hours_color(val):
+        v = str(val)
+        if "24x7" in v: return "#064e3b"
+        if "On-Call" in v or "P1" in v: return "#1e3a5f"
+        if "12x" in v: return "#3b2a6e"
+        return SURFACE2
 
-    row_colors_name  = [colors_map.get(l.get("color", "orange"), AMBER) + "22" for l in layers]
-    row_colors_issue = [colors_map.get(l.get("color", "orange"), AMBER) + "33" for l in layers]
-    risk_colors      = [colors_map.get(l.get("color", "orange"), AMBER) + "55" for l in layers]
+    col_req      = [str(r.get("requirement", "")) for r in rows]
+    col_sub      = [str(r.get("sub_requirement", "")) for r in rows]
+    col_tool     = [str(r.get("current_tool", "Unknown")) for r in rows]
+    col_owner    = [str(r.get("licence_owner", "None")) for r in rows]
+    col_hours    = [str(r.get("support_hours", "8x5")) for r in rows]
+    col_tz       = [str(r.get("timezone", "IST")) for r in rows]
+    col_vm       = [str(r.get("vm_frequency", "Monthly")) for r in rows]
+    col_brief    = [str(r.get("requirement_brief", ""))[:120] + ("..." if len(str(r.get("requirement_brief",""))) > 120 else "") for r in rows]
+
+    owner_colors = [licence_color(v) for v in col_owner]
+    hours_colors = [hours_color(v) for v in col_hours]
 
     fig = go.Figure(data=[go.Table(
-        columnwidth=[160, 280, 280, 100],
+        columnwidth=[130, 160, 120, 90, 80, 110, 90, 260],
         header=dict(
             values=[
-                "<b>Security Domain</b>",
-                "<b>Current State (What exists today)</b>",
-                "<b>Gaps & Issues Identified</b>",
-                "<b>Risk Level</b>",
+                "<b>Requirement</b>",
+                "<b>Sub-Requirement</b>",
+                "<b>Current Tool</b>",
+                "<b>Licence Owner</b>",
+                "<b>Support Hours</b>",
+                "<b>Timezone</b>",
+                "<b>VM Frequency</b>",
+                "<b>Requirement Brief</b>",
             ],
-            fill_color=["#1e1b4b", "#1e1b4b", "#7f1d1d", "#1e1b4b"],
-            font=dict(color=TEXT, size=11, family="Arial"),
+            fill_color="#1e1b4b",
+            font=dict(color=TEXT, size=10, family="Arial"),
+            align="left",
+            height=34,
+            line_color=BORDER,
+        ),
+        cells=dict(
+            values=[col_req, col_sub, col_tool, col_owner, col_hours, col_tz, col_vm, col_brief],
+            fill_color=[
+                SURFACE2, SURFACE2, SURFACE2,
+                owner_colors,
+                hours_colors,
+                SURFACE2, SURFACE2, SURFACE2,
+            ],
+            font=dict(color=TEXT2, size=9, family="Arial"),
             align="left",
             height=36,
             line_color=BORDER,
         ),
-        cells=dict(
-            values=[layer_names, current_state, issues, risk_labels],
-            fill_color=[
-                row_colors_name,
-                [SURFACE2] * len(layers),
-                row_colors_issue,
-                risk_colors,
-            ],
-            font=dict(color=TEXT2, size=10, family="Arial"),
-            align="left",
-            height=40,
-            line_color=BORDER,
-        ),
     )])
 
-    title = f"CMO — Current Mode of Operations  ·  {org}  ·  Overall Risk: {risk}"
     fig.update_layout(
-        **_base_layout(title, height=max(380, len(layers) * 50 + 100)),
+        **_base_layout(
+            f"CMO - Current Mode of Operations  |  {org}  |  {industry}",
+            height=max(420, len(rows) * 40 + 100)
+        ),
     )
 
-    if gaps:
-        fig.add_annotation(
-            text="⚠  Key Gaps: " + "  ·  ".join(gaps),
-            xref="paper", yref="paper",
-            x=0.0, y=-0.12,
-            showarrow=False,
-            font=dict(color=AMBER, size=11),
-            align="left",
-        )
+    fig.add_annotation(
+        text="Licence: Blue=Customer  Green=Supplier  Purple=Shared  Red=None  |  Hours: Green=24x7  Blue=On-Call  Grey=8x5",
+        xref="paper", yref="paper", x=0.0, y=-0.06,
+        showarrow=False, font=dict(color=TEXT2, size=9), align="left",
+    )
 
     return fig
 
 
 def render_fmo(data):
-    """Future Mode of Operations — horizontal layered architecture table"""
-    layers      = data.get("layers", [])
+    """FMO — Recommended solutions table with support model and timezone coverage"""
+    rows        = data.get("rows", [])
     arch        = data.get("architecture_name", "Integrated Security Platform")
-    outcomes    = data.get("key_outcomes", [])
-    integration = data.get("integration_layer", "Unified Security Fabric")
+    outcomes    = _safe_list(data.get("key_outcomes", []))
+    integration = str(data.get("integration_note", ""))
 
-    if not layers:
+    if not rows:
         return None
 
-    layer_colors_list = [GREEN, TEAL, ACCENT, PURPLE, AMBER, "#ec4899", "#f97316", "#06b6d4"]
+    def support_color(val):
+        v = str(val)
+        if "24x7" in v: return "#064e3b"
+        if "On-Call" in v or "P1" in v: return "#1e3a5f"
+        if "Managed" in v: return "#3b2a6e"
+        return SURFACE2
 
-    layer_names = [f"<b>{l['name']}</b>" for l in layers]
-    vendors     = [l.get("vendor", "TBD") for l in layers]
-    solutions   = ["<br>".join(l.get("solutions", [])) for l in layers]
-    capabilities= ["<br>".join(l.get("capabilities", [])) for l in layers]
+    col_req   = [str(r.get("requirement", "")) for r in rows]
+    col_sub   = [str(r.get("sub_requirement", "")) for r in rows]
+    col_sol   = [str(r.get("recommended_solution", "")) for r in rows]
+    col_vend  = [str(r.get("vendor", "")) for r in rows]
+    col_supp  = [str(r.get("support_model", "")) for r in rows]
+    col_tz    = [str(r.get("timezone_coverage", "")) for r in rows]
+    col_vm    = [str(r.get("vm_frequency", "")) for r in rows]
+    col_fit   = [str(r.get("fit_rationale", ""))[:120] + ("..." if len(str(r.get("fit_rationale",""))) > 120 else "") for r in rows]
 
-    row_bg   = [c + "22" for c in layer_colors_list[:len(layers)]]
-    sol_bg   = [SURFACE2] * len(layers)
-    cap_bg   = [c + "11" for c in layer_colors_list[:len(layers)]]
-    vend_bg  = [c + "33" for c in layer_colors_list[:len(layers)]]
+    supp_colors = [support_color(v) for v in col_supp]
 
     fig = go.Figure(data=[go.Table(
-        columnwidth=[160, 200, 240, 220],
+        columnwidth=[130, 160, 140, 100, 120, 130, 80, 260],
         header=dict(
             values=[
-                "<b>Security Layer</b>",
-                "<b>Recommended Vendor</b>",
-                "<b>Proposed Solutions</b>",
-                "<b>Key Capabilities Delivered</b>",
+                "<b>Requirement</b>",
+                "<b>Sub-Requirement</b>",
+                "<b>Recommended Solution</b>",
+                "<b>Vendor</b>",
+                "<b>Support Model</b>",
+                "<b>Timezone Coverage</b>",
+                "<b>VM Frequency</b>",
+                "<b>Why This Fits</b>",
             ],
-            fill_color=["#064e3b", "#064e3b", "#064e3b", "#064e3b"],
-            font=dict(color=TEXT, size=11, family="Arial"),
+            fill_color="#064e3b",
+            font=dict(color=TEXT, size=10, family="Arial"),
+            align="left",
+            height=34,
+            line_color=BORDER,
+        ),
+        cells=dict(
+            values=[col_req, col_sub, col_sol, col_vend, col_supp, col_tz, col_vm, col_fit],
+            fill_color=[
+                SURFACE2, SURFACE2, SURFACE2, SURFACE2,
+                supp_colors,
+                SURFACE2, SURFACE2, SURFACE2,
+            ],
+            font=dict(color=TEXT2, size=9, family="Arial"),
             align="left",
             height=36,
             line_color=BORDER,
         ),
-        cells=dict(
-            values=[layer_names, vendors, solutions, capabilities],
-            fill_color=[row_bg, vend_bg, sol_bg, cap_bg],
-            font=dict(color=TEXT2, size=10, family="Arial"),
-            align="left",
-            height=40,
-            line_color=BORDER,
-        ),
     )])
 
-    title = f"FMO — Future Mode of Operations  ·  {arch}"
     fig.update_layout(
-        **_base_layout(title, height=max(400, len(layers) * 50 + 120)),
+        **_base_layout(
+            f"FMO - Future Mode of Operations  |  {arch}",
+            height=max(420, len(rows) * 40 + 120)
+        ),
     )
 
+    annotations = []
     if integration:
-        fig.add_annotation(
-            text=f"🔗  Integration Layer: {integration}",
-            xref="paper", yref="paper",
-            x=0.0, y=-0.1,
-            showarrow=False,
-            font=dict(color=ACCENT, size=11),
-            align="left",
-        )
-
+        annotations.append(f"Integration: {integration[:120]}")
     if outcomes:
+        annotations.append("Outcomes: " + "  |  ".join(str(o) for o in outcomes[:4]))
+    if annotations:
         fig.add_annotation(
-            text="✓  Key Outcomes: " + "  ·  ".join(outcomes),
-            xref="paper", yref="paper",
-            x=0.0, y=-0.18,
-            showarrow=False,
-            font=dict(color=GREEN, size=11),
-            align="left",
+            text="  //  ".join(annotations),
+            xref="paper", yref="paper", x=0.0, y=-0.06,
+            showarrow=False, font=dict(color=GREEN, size=9), align="left",
         )
 
     return fig
@@ -223,7 +262,7 @@ def render_threat_coverage(data):
         columnwidth=col_widths,
         header=dict(
             values=header_vals,
-            fill_color=["#1e1b4b"] + ["#1e3a5f"] * len(solutions),
+            fill_color="#1e1b4b",
             font=dict(color=TEXT, size=11, family="Arial"),
             align="center",
             height=38,
@@ -231,7 +270,7 @@ def render_threat_coverage(data):
         ),
         cells=dict(
             values=[[f"<b>{t}</b>" for t in threats]] + col_values,
-            fill_color=[[SURFACE2] * len(threats)] + col_fill,
+            fill_color=SURFACE2,
             font=dict(
                 color=[TEXT] + col_font,
                 size=10,
@@ -301,15 +340,7 @@ def render_requirements_traceability(data):
         ),
         cells=dict(
             values=[ids, domains, req_texts, priorities, solutions, coverage, notes],
-            fill_color=[
-                [SURFACE2]*len(ids),
-                [SURFACE2]*len(domains),
-                [SURFACE2]*len(req_texts),
-                pri_colors,
-                [SURFACE2]*len(solutions),
-                cov_colors,
-                [SURFACE2]*len(notes),
-            ],
+            fill_color=SURFACE2,
             font=dict(color=TEXT2, size=10, family="Arial"),
             align="left",
             height=28,
