@@ -90,7 +90,6 @@ def render_cmo(data):
     title = f"CMO — Current Mode of Operations  ·  {org}  ·  Overall Risk: {risk}"
     fig.update_layout(
         **_base_layout(title, height=max(380, len(layers) * 50 + 100)),
-        margin=dict(l=10, r=10, t=50, b=60),
     )
 
     if gaps:
@@ -156,7 +155,6 @@ def render_fmo(data):
     title = f"FMO — Future Mode of Operations  ·  {arch}"
     fig.update_layout(
         **_base_layout(title, height=max(400, len(layers) * 50 + 120)),
-        margin=dict(l=10, r=10, t=50, b=80),
     )
 
     if integration:
@@ -246,9 +244,8 @@ def render_threat_coverage(data):
     )])
 
     fig.update_layout(
-        **_base_layout("Threat Coverage Matrix  ·  Based on RFP Requirements & Current Market Threats",
+        **_base_layout("Threat Coverage Matrix - Based on RFP Requirements & Current Market Threats",
                        height=max(420, len(threats) * 38 + 100)),
-        margin=dict(l=10, r=10, t=50, b=60),
     )
 
     fig.add_annotation(
@@ -321,9 +318,8 @@ def render_requirements_traceability(data):
     )])
 
     fig.update_layout(
-        **_base_layout("Requirements Traceability Matrix  -  RFP Requirements to Proposed Solutions",
+        **_base_layout("Requirements Traceability Matrix - RFP Requirements to Proposed Solutions",
                        height=max(400, len(reqs) * 32 + 100)),
-        margin=dict(l=10, r=10, t=50, b=10),
     )
 
     return fig
