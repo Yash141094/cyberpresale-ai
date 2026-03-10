@@ -4,6 +4,7 @@ AI extracts structured data → Python renders beautiful charts and diagrams
 """
 import json
 import os
+import time
 from openai import OpenAI
 
 def get_client():
@@ -16,6 +17,26 @@ MODEL = "llama-3.3-70b-versatile"
 
 def truncate(text, max_chars=8000):
     return text[:max_chars] if len(text) > max_chars else text
+
+def call_llm(client, messages, max_tokens=1000, temperature=0.1):
+    max_retries = 4
+    wait_times  = [10, 20, 40, 60]
+    for attempt in range(max_retries):
+        try:
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            err = str(e).lower()
+            is_rate_limit = "rate" in err or "429" in err or "limit" in err or "quota" in err
+            if is_rate_limit and attempt < max_retries - 1:
+                time.sleep(wait_times[attempt])
+                continue
+            raise
 
 def extract_cmo_data(rfp_text):
     """Extract current environment data for CMO diagram"""
@@ -72,11 +93,7 @@ RFP: {truncate(rfp_text)}
 
 Infer current state from what they are ASKING FOR — if they want EDR, they likely don't have one. Be specific."""
 
-    response = client.chat.completions.create(
-        model=MODEL, messages=[{"role": "user", "content": prompt}],
-        max_tokens=1200, temperature=0.1
-    )
-    content = response.choices[0].message.content.strip()
+    content = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1200, temperature=0.1).strip()
     if "```json" in content: content = content.split("```json")[1].split("```")[0].strip()
     elif "```" in content: content = content.split("```")[1].split("```")[0].strip()
     start, end = content.find("{"), content.rfind("}") + 1
@@ -156,11 +173,7 @@ RFP: {truncate(rfp_text)}
 
 Base recommendations on actual RFP requirements. Be specific about vendors."""
 
-    response = client.chat.completions.create(
-        model=MODEL, messages=[{"role": "user", "content": prompt}],
-        max_tokens=1500, temperature=0.2
-    )
-    content = response.choices[0].message.content.strip()
+    content = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1500, temperature=0.2).strip()
     if "```json" in content: content = content.split("```json")[1].split("```")[0].strip()
     elif "```" in content: content = content.split("```")[1].split("```")[0].strip()
     start, end = content.find("{"), content.rfind("}") + 1
@@ -215,11 +228,7 @@ Solution names: use standard names like SIEM/SOC, EDR/XDR, Zero Trust/IAM, Cloud
 
 RFP: {truncate(rfp_text, 5000)}"""
 
-    response = client.chat.completions.create(
-        model=MODEL, messages=[{"role": "user", "content": prompt}],
-        max_tokens=1000, temperature=0.1
-    )
-    content = response.choices[0].message.content.strip()
+    content = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1000, temperature=0.1).strip()
     if "```json" in content: content = content.split("```json")[1].split("```")[0].strip()
     elif "```" in content: content = content.split("```")[1].split("```")[0].strip()
     start, end = content.find("{"), content.rfind("}") + 1
@@ -270,11 +279,7 @@ Priority values: "Mandatory", "Preferred", "Optional"
 Extract 15-20 key requirements from the RFP, one per major requirement.
 RFP: {truncate(rfp_text)}"""
 
-    response = client.chat.completions.create(
-        model=MODEL, messages=[{"role": "user", "content": prompt}],
-        max_tokens=2000, temperature=0.1
-    )
-    content = response.choices[0].message.content.strip()
+    content = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=2000, temperature=0.1).strip()
     if "```json" in content: content = content.split("```json")[1].split("```")[0].strip()
     elif "```" in content: content = content.split("```")[1].split("```")[0].strip()
     start, end = content.find("{"), content.rfind("}") + 1
@@ -314,11 +319,7 @@ Respond ONLY with valid JSON:
 Customize based on actual RFP requirements.
 RFP: {truncate(rfp_text, 4000)}"""
 
-    response = client.chat.completions.create(
-        model=MODEL, messages=[{"role": "user", "content": prompt}],
-        max_tokens=1200, temperature=0.2
-    )
-    content = response.choices[0].message.content.strip()
+    content = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1200, temperature=0.2).strip()
     if "```json" in content: content = content.split("```json")[1].split("```")[0].strip()
     elif "```" in content: content = content.split("```")[1].split("```")[0].strip()
     start, end = content.find("{"), content.rfind("}") + 1
