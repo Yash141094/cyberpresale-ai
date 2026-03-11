@@ -2,7 +2,11 @@ import os
 import json
 import time
 import random
-from openai import OpenAI, RateLimitError
+from openai import OpenAI
+try:
+    from openai import RateLimitError as _OAIRateLimit
+except ImportError:
+    _OAIRateLimit = None
 
 def get_client():
     api_key = os.environ.get("GROQ_API_KEY")
@@ -19,6 +23,13 @@ def truncate_text(text, max_chars=12000):
     return text[:max_chars] if len(text) > max_chars else text
 
 
+def _is_rate_limit(e):
+    """Detect rate limit errors regardless of client (OpenAI, Groq, etc.)."""
+    if _OAIRateLimit and isinstance(e, _OAIRateLimit):
+        return True
+    err = str(e).lower()
+    return any(x in err for x in ["rate limit", "rate_limit", "429", "quota", "too many requests", "ratelimit"])
+
 def call_llm(client, messages, max_tokens=1500, temperature=0.2):
     """Central LLM caller with exponential backoff on rate limit."""
     max_retries = 5
@@ -31,16 +42,8 @@ def call_llm(client, messages, max_tokens=1500, temperature=0.2):
                 temperature=temperature,
             )
             return response.choices[0].message.content
-        except RateLimitError:
-            if attempt < max_retries - 1:
-                # Exponential backoff: 5s, 10s, 20s, 40s + small jitter
-                wait = (5 * (2 ** attempt)) + random.uniform(0, 3)
-                time.sleep(wait)
-                continue
-            raise
         except Exception as e:
-            err = str(e).lower()
-            if ("rate" in err or "429" in err or "quota" in err) and attempt < max_retries - 1:
+            if _is_rate_limit(e) and attempt < max_retries - 1:
                 wait = (5 * (2 ** attempt)) + random.uniform(0, 3)
                 time.sleep(wait)
                 continue
