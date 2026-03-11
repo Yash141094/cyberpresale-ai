@@ -336,7 +336,138 @@ def generate_ppt(session_state):
         x += 4.44
     footer(s)
 
-    # ─── SLIDE 17: CLOSING ────────────────────────────────────────────────────
+    # ─── SLIDE 17: DOMAIN SCOPE PIE CHART ────────────────────────────────────
+    try:
+        import io, math
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as mpatches
+
+        rfp_lower_chart = (get('rfp_text') or '').lower()
+        tower_kws = {
+            'Cybersecurity':             ['siem','soc','edr','threat','grc','firewall','ztna','dlp','soar'],
+            'Infrastructure & DC Ops':   ['server','data centre','dc','compute','vmware','hci','storage','san','nas','backup','dr'],
+            'App Managed Services':      ['sap','erp','ams','l1','l2','l3','application support','release','devops','jira'],
+            'End User Computing':        ['helpdesk','desktop','endpoint','euc','m365','intune','vdi','citrix','service desk','patch'],
+            'Digital Workplace':         ['sharepoint','teams','intranet','collaboration','purview','onedrive','power platform'],
+            'Cloud & Migration':         ['cloud','aws','azure','gcp','migration','lift-and-shift','kubernetes','container','finops'],
+            'Data & Analytics':          ['data lake','analytics','bi','etl','data warehouse','mlops','power bi','tableau','databricks'],
+            'Networking':                ['wan','lan','bgp','routing','switching','mpls','sd-wan','noc','wireless'],
+        }
+        w = {t: sum(rfp_lower_chart.count(kw) for kw in kws) for t, kws in tower_kws.items()}
+        w = {t: v for t, v in w.items() if v > 0}
+        if not w:
+            domains_from_classify = get('domains') or {}
+            for d_ in (domains_from_classify.get('detected_domains', []) if isinstance(domains_from_classify, dict) else []):
+                w[d_] = 10
+        if not w:
+            w = {'IT Services': 1}
+
+        chart_labels = list(w.keys())
+        chart_values = list(w.values())
+        total_w = sum(chart_values)
+        chart_pcts = [v/total_w*100 for v in chart_values]
+
+        pie_colors = ['#c2550a','#ea7c2b','#d97706','#166534','#1e40af','#6b21a8','#0e7490','#be185d'][:len(chart_labels)]
+
+        fig_pie, ax_pie = plt.subplots(figsize=(8, 4.5), facecolor='#0d1b2a')
+        ax_pie.set_facecolor('#0d1b2a')
+        wedges, texts, autotexts = ax_pie.pie(
+            chart_values, labels=None, autopct='%1.0f%%',
+            colors=pie_colors, startangle=90,
+            wedgeprops=dict(width=0.55, edgecolor='#0d1b2a', linewidth=2),
+            pctdistance=0.75,
+        )
+        for at in autotexts:
+            at.set_fontsize(9); at.set_color('white'); at.set_fontweight('bold')
+        legend_patches = [mpatches.Patch(color=pie_colors[i], label=f"{chart_labels[i]} ({chart_pcts[i]:.0f}%)")
+                          for i in range(len(chart_labels))]
+        ax_pie.legend(handles=legend_patches, loc='center left', bbox_to_anchor=(1.0, 0.5),
+                      fontsize=8.5, frameon=False, labelcolor='#c8d8e8')
+        ax_pie.set_title('Scope Distribution by Service Tower', color='white', fontsize=12, pad=12, fontweight='bold')
+        plt.tight_layout()
+        buf_pie = io.BytesIO(); plt.savefig(buf_pie, format='png', dpi=150, bbox_inches='tight', facecolor='#0d1b2a'); buf_pie.seek(0); plt.close()
+
+        s = prs.slides.add_slide(blank); bg(s); lbar(s, ACCENT); hband(s)
+        T(s, 0.3, 0.18, 10, 0.75, "Domain Scope Distribution", size=26, bold=True, color=WHITE)
+        T(s, 0.3, 0.85, 12, 0.28, "Keyword-weighted breakdown of RFP coverage across IT service towers", size=10, color=MUTED, italic=True)
+        from pptx.util import Inches as _In
+        pic = s.shapes.add_picture(buf_pie, _In(0.3), _In(1.2), _In(12.5), _In(5.9))
+        footer(s)
+    except Exception as _chart_err:
+        pass  # chart slide optional — skip silently if matplotlib unavailable
+
+    # ─── SLIDE 18: COMPETITIVE BAR CHART (if competitive data present) ────────
+    try:
+        comp_text = get('competitive') or ''
+        if comp_text:
+            import re as _re
+            # Extract competitor names and threat levels from table in competitive text
+            comp_rows = _re.findall(r'\|\s*([A-Za-z &]+)\s*\|\s*(High|Medium|Med|Low)\s*\|', comp_text, _re.IGNORECASE)
+            if len(comp_rows) >= 2:
+                comp_names  = [r[0].strip() for r in comp_rows[:6]]
+                threat_map  = {'high': 3, 'medium': 2, 'med': 2, 'low': 1}
+                threat_vals = [threat_map.get(r[1].strip().lower(), 2) for r in comp_rows[:6]]
+                bar_colors  = ['#ef4444' if v==3 else '#f59e0b' if v==2 else '#34d399' for v in threat_vals]
+
+                fig_bar, ax_bar = plt.subplots(figsize=(9, 3.8), facecolor='#0d1b2a')
+                ax_bar.set_facecolor('#0d1b2a')
+                bars = ax_bar.barh(comp_names, threat_vals, color=bar_colors, height=0.5, edgecolor='#0d1b2a')
+                ax_bar.set_xlim(0, 3.5)
+                ax_bar.set_xticks([1, 2, 3]); ax_bar.set_xticklabels(['Low', 'Medium', 'High'], color='#9aa0b4', fontsize=9)
+                ax_bar.tick_params(axis='y', colors='#c8d8e8', labelsize=10)
+                ax_bar.spines['top'].set_visible(False); ax_bar.spines['right'].set_visible(False)
+                ax_bar.spines['bottom'].set_color('#252b38'); ax_bar.spines['left'].set_color('#252b38')
+                ax_bar.set_title('Competitive Threat Assessment', color='white', fontsize=12, pad=10, fontweight='bold')
+                ax_bar.axvline(x=2.5, color='#ef4444', linestyle='--', alpha=0.4, linewidth=1)
+                plt.tight_layout()
+                buf_bar = io.BytesIO(); plt.savefig(buf_bar, format='png', dpi=150, bbox_inches='tight', facecolor='#0d1b2a'); buf_bar.seek(0); plt.close()
+
+                s = prs.slides.add_slide(blank); bg(s); lbar(s, PINK); hband(s)
+                T(s, 0.3, 0.18, 10, 0.75, "Competitive Threat Assessment", size=26, bold=True, color=WHITE)
+                T(s, 0.3, 0.85, 12, 0.28, "Relative threat level by competitor for this specific deal", size=10, color=MUTED, italic=True)
+                s.shapes.add_picture(buf_bar, _In(0.5), _In(1.2), _In(9.5), _In(5.5))
+
+                # Threat legend
+                for i, (name, val) in enumerate(zip(comp_names, threat_vals)):
+                    lbl = {3:'HIGH',2:'MEDIUM',1:'LOW'}[val]
+                    col = {3:RED,2:AMBER,1:GREEN}[val]
+                    T(s, 10.2, 1.5+i*0.9, 2.9, 0.38, f"{name}: {lbl}", size=9, color=col, bold=(val==3))
+                footer(s)
+    except Exception:
+        pass
+
+    # ─── SLIDE 19: IMPLEMENTATION PHASE TIMELINE ─────────────────────────────
+    try:
+        sol_text = get('solution_rec') or ''
+        if sol_text:
+            phases = _re.findall(r'Phase\s+([123])[^\n]*\n([^\n#]{20,200})', sol_text)
+            if len(phases) >= 2:
+                s = prs.slides.add_slide(blank); bg(s); lbar(s, GREEN); hband(s)
+                T(s, 0.3, 0.18, 10, 0.75, "Implementation Phasing", size=26, bold=True, color=WHITE)
+                T(s, 0.3, 0.85, 12, 0.28, "Proposed delivery phases and key milestones", size=10, color=MUTED, italic=True)
+
+                phase_colors = [GREEN, ACCENT, AMBER]
+                ph_labels = [f"Phase {p[0]}" for p in phases[:3]]
+                ph_bodies = [p[1][:180] for p in phases[:3]]
+
+                # Timeline bar
+                R(s, 0.25, 1.3, 12.83, 0.06, MUTED)
+                n = len(ph_labels)
+                w_each = 12.83 / n
+                for i, (lbl, body, col) in enumerate(zip(ph_labels, ph_bodies, phase_colors)):
+                    x = 0.25 + i * w_each
+                    R(s, x + 0.05, 1.15, 0.25, 0.35, col)  # milestone dot (rect)
+                    T(s, x + 0.05, 1.55, w_each - 0.15, 0.35, lbl, size=11, bold=True, color=col)
+                    R(s, x + 0.05, 2.0, w_each - 0.15, 4.8, PANEL)
+                    R(s, x + 0.05, 2.0, w_each - 0.15, 0.06, col)
+                    T(s, x + 0.18, 2.15, w_each - 0.4, 4.4, body, size=9, color=LIGHT)
+                footer(s)
+    except Exception:
+        pass
+
+    # ─── SLIDE 20: CLOSING ───────────────────────────────────────────────────
     s = prs.slides.add_slide(blank); bg(s)
     R(s, 0, 0, 13.33, 0.12, ACCENT); R(s, 0, 7.38, 13.33, 0.12, ACCENT)
     R(s, 0, 0.12, 4.2, 7.26, NAVY); R(s, 4.2, 0.12, 0.04, 7.26, ACCENT)
