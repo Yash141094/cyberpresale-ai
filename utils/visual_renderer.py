@@ -255,7 +255,8 @@ def render_threat_coverage(data):
         col_fill.append(col_fills)
         col_font.append(col_fonts)
 
-    header_vals = ["<b>Threat / Attack Vector</b>"] + [f"<b>{s}</b>" for s in solutions]
+    row_label   = data.get("row_label", "Threat / Attack Vector")
+    header_vals = [f"<b>{row_label}</b>"] + [f"<b>{s}</b>" for s in solutions]
     col_widths  = [180] + [120] * len(solutions)
 
     fig = go.Figure(data=[go.Table(
