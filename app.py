@@ -891,19 +891,24 @@ else:
                 status = st.status("Analysing RFP domain scope…", expanded=True)
                 with status:
                     try:
-                        st.write("🔍 Detecting RFP type and context…")
                         ctx = st.session_state.rfp_context or ""
                         rfp_plus = st.session_state.rfp_text + ("\n\nCONTEXT:\n" + ctx if ctx else "")
+                        # Reuse cached rfp_type if already known — saves one full API call
+                        cached_type = get_rfp_type()
+                        if cached_type:
+                            st.write(f"✅ RFP type already detected: **{cached_type}** — skipping re-detection…")
+                        else:
+                            st.write("🔍 Detecting RFP type and context…")
                         st.write("🗂️ Mapping service towers and calculating domain weights…")
-                        st.write("⏳ This may take 30–60 seconds depending on API load…")
-                        st.session_state.domains = classify_domains(rfp_plus)
+                        st.write("⏳ This may take 20–40 seconds…")
+                        st.session_state.domains = classify_domains(rfp_plus, rfp_type_hint=cached_type)
                         status.update(label="Domain classification complete ✓", state="complete", expanded=False)
                         st.rerun()
                     except Exception as e:
                         err_str = str(e).lower()
                         if any(x in err_str for x in ["rate limit","429","quota","too many"]):
-                            status.update(label="Rate limit hit — please wait", state="error", expanded=True)
-                            st.error("⚠️ Groq API rate limit reached. Wait 30–60 seconds, then click the button again. This is a free tier limit — it will clear automatically.")
+                            status.update(label="Rate limit hit — please wait 30–60s", state="error", expanded=True)
+                            st.error("⚠️ Groq free tier rate limit reached. Wait 30–60 seconds then click again — it clears automatically.")
                         else:
                             status.update(label="Error occurred", state="error", expanded=True)
                             st.error(f"Error: {str(e)[:200]}")
