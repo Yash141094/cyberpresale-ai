@@ -6,10 +6,12 @@ from utils.ai_engine import (
     generate_pain_analysis,
     generate_solution_recommendation,
     generate_competitive_landscape,
+    generate_competitive_with_competitors,
     generate_product_mapping,
     generate_executive_summary,
     classify_domains,
-    chat_with_rfp
+    chat_with_rfp,
+    suggest_competitors,
 )
 try:
     from utils.visuals_engine import (
@@ -25,76 +27,6 @@ try:
 except Exception:
     VISUALS_AVAILABLE = False
 
-# ── Sample RFPs ────────────────────────────────────────────────────────────────
-SAMPLE_RFPS = {
-    "Cybersecurity — HDFC Securities": """
-REQUEST FOR PROPOSAL — CYBERSECURITY MANAGED SERVICES
-Organisation: HDFC Securities Limited | RFP: RFP-HDFC-CSEC-2025-047
-Estimated Value: INR 45-60 Crores | Contract: 3+2 Years
-
-OVERVIEW: HDFC Securities (3.2M active clients, INR 8,000Cr daily transactions) requires an integrated cybersecurity platform across 287 branches, 3 DCs, and hybrid cloud (AWS+Azure).
-Environment: 12,500 employees, 8,500 Windows endpoints, 1,200 Linux servers, 650 Mac, 3,400 mobile, 47 critical apps.
-
-REQUIREMENTS:
-SIEM: 50,000 EPS, UEBA, SOAR (50 playbooks), ServiceNow integration, 7-year retention.
-EDR: Full endpoint coverage, ransomware auto-isolation in 30s, MDR 24x7, air-gapped trading floor.
-IAM/PAM: MFA for 12,500 users, PAM for 380 privileged accounts, SSO for 47 apps.
-Cloud: CSPM for AWS/Azure, CWPP for 350 VMs, container security (40 Kubernetes clusters).
-Network: NGFW for 3 DCs, WAF for 23 apps, SD-WAN for 287 branches.
-GRC: RBI Cybersecurity Framework, SEBI CSCRF, PCI-DSS v4.0, ISO 27001:2022.
-SOC: 24x7x365 IST-based SOC, Indian data residency mandatory, 45-day POC.
-""",
-    "Infrastructure Services — TCS": """
-REQUEST FOR PROPOSAL — MANAGED INFRASTRUCTURE SERVICES
-Organisation: Tata Consultancy Services | RFP: TCS-INFRA-2025-112
-Estimated Value: INR 80-100 Crores | Contract: 5 Years
-
-OVERVIEW: TCS consolidating 3 legacy data centres into hybrid cloud. 80% on-prem VMware vSphere 6.5 (EoL Q2 2026).
-Scope: 2,400 physical servers, 18,000 VMs, 3 petabytes storage, 500Gbps inter-DC connectivity.
-
-REQUIREMENTS:
-Compute: VMware refresh or HCI (Nutanix/HPE), 99.99% availability SLA.
-Storage: SAN/NAS refresh, 3-2-1 backup, DR within 4-hour RTO.
-Network: LAN/WAN, SD-WAN for 45 offices, firewall management.
-Cloud: Azure landing zone, lift-and-shift 400 workloads, FinOps.
-Monitoring: Unified NOC (24x7), Dynatrace/Datadog, ITSM with ServiceNow.
-Compliance: ISO 20000, ISO 27001, SOC 2 Type II.
-""",
-    "End User Computing — HDFC Bank": """
-REQUEST FOR PROPOSAL — END USER COMPUTING & HELPDESK
-Organisation: HDFC Bank Limited | RFP: HDFC-EUC-2025-088
-Estimated Value: INR 35-50 Crores | Contract: 3 Years
-
-OVERVIEW: 12,000 endpoints across 500+ branches. Current helpdesk SLA 68%, target 95%.
-Scope: 12,000 Windows PCs, 1,200 MACs, 500 printers, 8,000 mobile devices.
-
-REQUIREMENTS:
-Service Desk: 24x7 L1 helpdesk, <2hr first response, CSAT >4.2/5, self-service portal.
-Desktop Management: Imaging, patch management (72hr SLA), asset lifecycle.
-M365 Administration: Exchange, Teams, SharePoint, OneDrive — 14,000 users.
-Device Management: Microsoft Intune MDM/MAM, BYOD enforcement.
-VDI: Citrix Virtual Apps for 3,500 contact centre agents, 99.9% availability.
-ITSM: ServiceNow integration with CMDB.
-""",
-    "Application Managed Services — Reliance": """
-REQUEST FOR PROPOSAL — SAP APPLICATION MANAGED SERVICES
-Organisation: Reliance Industries Limited | RFP: RIL-AMS-2025-045
-Estimated Value: INR 60-80 Crores | Contract: 3+2 Years
-
-OVERVIEW: SAP S/4HANA 2023 across 12 business units. Seeking AMS partner for support, enhancements, releases.
-Landscape: SAP S/4HANA, BTP, Analytics Cloud, IBP, Ariba, SuccessFactors — 18,000 SAP users.
-
-REQUIREMENTS:
-L1 Functional Support: 24x7 helpdesk, <4hr P2 response, knowledge base.
-L2 Technical Support: Config changes, workflow fixes, 72-hour SLA.
-L3 Engineering: Root cause analysis, ABAP development, <5 business days P1.
-Release Management: Monthly patches, bi-annual enhancement packs, regression testing.
-DevOps: CI/CD on SAP BTP, TOSCA automated testing, transport management.
-Compliance: SOX controls, internal audit support.
-""",
-}
-
-# ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Clarivo · RFP Intelligence",
     page_icon="◈",
@@ -102,386 +34,424 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ── Global CSS — Claude-inspired: white bg, charcoal text, warm amber accent ───
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap');
 
 :root {
-    /* Base */
-    --bg:       #fafaf8;
-    --surface:  #ffffff;
-    --surface2: #f5f4f0;
-    --surface3: #eeece6;
-
-    /* Borders */
-    --border:   #e8e5de;
-    --border2:  #d6d2c8;
-
-    /* Amber-orange accent — warm, Claude-like */
-    --accent:       #d97706;
-    --accent-light: #fef3c7;
-    --accent-mid:   #f59e0b;
-    --accent-dark:  #92400e;
-    --accent-glow:  rgba(217, 119, 6, 0.12);
-
-    /* Text */
-    --text:     #1a1915;
-    --text2:    #57534e;
-    --text3:    #a8a29e;
-    --text4:    #d6d3cd;
-
-    /* Status */
-    --green:    #059669;
-    --green-bg: #ecfdf5;
-    --red:      #dc2626;
-    --red-bg:   #fef2f2;
-    --blue:     #2563eb;
-    --blue-bg:  #eff6ff;
+    --bg:           #f9f8f5;
+    --surface:      #ffffff;
+    --surface2:     #f3f2ee;
+    --surface3:     #eceae3;
+    --border:       #e5e2d9;
+    --border2:      #d4d0c4;
+    --accent:       #c2550a;
+    --accent-light: #fff4ed;
+    --accent-mid:   #ea7c2b;
+    --accent-glow:  rgba(194,85,10,0.10);
+    --text:         #18170f;
+    --text2:        #44403a;
+    --text3:        #888274;
+    --text4:        #c5bfb0;
+    --green:        #166534;
+    --green-bg:     #f0fdf4;
+    --green-border: #bbf7d0;
+    --red:          #991b1b;
+    --red-bg:       #fff1f2;
+    --red-border:   #fecdd3;
+    --blue:         #1e40af;
+    --blue-bg:      #eff6ff;
+    --blue-border:  #bfdbfe;
 }
 
-/* Reset */
+/* ── Base ── */
 html, body, [class*="css"] {
     font-family: 'DM Sans', sans-serif;
     background: var(--bg);
     color: var(--text);
+    font-size: 14px;
 }
 .stApp { background: var(--bg); }
 
-/* Sidebar */
+/* ── Sidebar — dark, structured like a chat sidebar ── */
 section[data-testid="stSidebar"] {
-    background: var(--text) !important;
-    border-right: none !important;
+    background: #161410 !important;
+    border-right: 1px solid #2a2620 !important;
+    width: 240px !important;
 }
-section[data-testid="stSidebar"] * { color: #e8e5de !important; }
 section[data-testid="stSidebar"] .stButton > button {
-    background: rgba(255,255,255,0.06) !important;
-    color: #e8e5de !important;
-    border: 1px solid rgba(255,255,255,0.12) !important;
+    background: rgba(255,255,255,0.05) !important;
+    color: #d4cfc5 !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    font-size: 0.78rem !important;
+    padding: 0.35rem 0.9rem !important;
 }
 section[data-testid="stSidebar"] .stButton > button:hover {
-    background: rgba(217,119,6,0.2) !important;
-    border-color: var(--accent-mid) !important;
-    color: #fbbf24 !important;
+    background: rgba(194,85,10,0.15) !important;
+    border-color: rgba(194,85,10,0.4) !important;
+    color: #ea7c2b !important;
 }
 section[data-testid="stSidebar"] .stTextInput input {
-    background: rgba(255,255,255,0.08) !important;
-    border: 1px solid rgba(255,255,255,0.15) !important;
-    color: #f5f4f0 !important;
+    background: rgba(255,255,255,0.07) !important;
+    border: 1px solid rgba(255,255,255,0.1) !important;
+    color: #e8e3d8 !important;
+    font-size: 0.8rem !important;
+    border-radius: 6px !important;
+}
+section[data-testid="stSidebar"] .stSuccess {
+    background: rgba(22,101,52,0.2) !important;
+    border: none !important;
 }
 
-/* Tabs */
+/* ── Tabs ── */
 .stTabs [data-baseweb="tab-list"] {
     background: var(--surface2) !important;
-    border-radius: 10px !important;
-    padding: 4px !important;
+    border-radius: 8px !important;
+    padding: 3px !important;
     border: 1px solid var(--border) !important;
-    gap: 2px !important;
+    gap: 1px !important;
 }
 .stTabs [data-baseweb="tab"] {
     font-family: 'DM Sans', sans-serif !important;
-    font-size: 0.78rem !important;
+    font-size: 0.76rem !important;
     font-weight: 500 !important;
     color: var(--text3) !important;
-    border-radius: 7px !important;
-    padding: 0.4rem 0.85rem !important;
-    transition: all 0.15s !important;
+    border-radius: 6px !important;
+    padding: 0.35rem 0.8rem !important;
 }
 .stTabs [aria-selected="true"] {
     background: var(--surface) !important;
     color: var(--text) !important;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.07) !important;
 }
 
-/* Buttons */
+/* ── Buttons ── */
 .stButton > button {
     background: var(--surface) !important;
     color: var(--text) !important;
     border: 1px solid var(--border2) !important;
-    border-radius: 8px !important;
+    border-radius: 7px !important;
     font-family: 'DM Sans', sans-serif !important;
-    font-size: 0.82rem !important;
+    font-size: 0.8rem !important;
     font-weight: 500 !important;
-    padding: 0.5rem 1.2rem !important;
-    transition: all 0.15s ease !important;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
+    padding: 0.42rem 1.1rem !important;
+    transition: all 0.12s ease !important;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04) !important;
 }
 .stButton > button:hover {
     background: var(--accent-light) !important;
-    border-color: var(--accent) !important;
-    color: var(--accent-dark) !important;
-    box-shadow: 0 2px 8px var(--accent-glow) !important;
+    border-color: var(--accent-mid) !important;
+    color: var(--accent) !important;
 }
 
-/* Inputs */
-.stTextInput input, .stTextArea textarea, .stSelectbox select {
+/* ── Inputs ── */
+.stTextInput input, .stTextArea textarea {
     background: var(--surface) !important;
     border: 1px solid var(--border2) !important;
     color: var(--text) !important;
     font-family: 'DM Sans', sans-serif !important;
-    font-size: 0.85rem !important;
-    border-radius: 8px !important;
+    font-size: 0.84rem !important;
+    border-radius: 7px !important;
 }
 .stTextInput input:focus, .stTextArea textarea:focus {
-    border-color: var(--accent) !important;
+    border-color: var(--accent-mid) !important;
     box-shadow: 0 0 0 3px var(--accent-glow) !important;
 }
 
-/* File uploader */
+/* ── File uploader ── */
 [data-testid="stFileUploader"] {
     background: var(--surface) !important;
     border: 1.5px dashed var(--border2) !important;
-    border-radius: 12px !important;
+    border-radius: 10px !important;
+}
+[data-testid="stFileUploader"]:hover {
+    border-color: var(--accent-mid) !important;
+    background: var(--accent-light) !important;
 }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 4px; height: 4px; }
-::-webkit-scrollbar-track { background: var(--bg); }
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
 
-/* Success/warning/error override */
-.stSuccess { background: var(--green-bg) !important; color: var(--green) !important; }
-.stWarning { background: #fffbeb !important; }
+hr { border-color: var(--border) !important; margin: 0.75rem 0 !important; }
 
-hr { border-color: var(--border) !important; margin: 0.8rem 0 !important; }
+/* ════════════════════════════════════════
+   CUSTOM COMPONENTS — document-grade typography
+   ════════════════════════════════════════ */
 
-/* ── Custom components ── */
+/* Response content — dark, readable, document-like */
+.cl-doc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.8rem 2rem;
+    margin-bottom: 1rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    color: var(--text);                 /* near-black, not grey */
+    line-height: 1.75;
+}
+.cl-doc h2 {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 1.2rem 0 0.35rem;
+    padding-bottom: 0.25rem;
+    border-bottom: 1px solid var(--border);
+}
+.cl-doc h3 {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text);
+    margin: 0.8rem 0 0.2rem;
+}
+.cl-doc p, .cl-doc li {
+    font-size: 0.84rem;
+    color: var(--text2);
+    margin: 0 0 0.4rem;
+}
+.cl-doc strong { color: var(--text); font-weight: 600; }
+.cl-doc table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.8rem 0;
+    font-size: 0.82rem;
+}
+.cl-doc th {
+    background: var(--surface2);
+    color: var(--text);
+    font-weight: 600;
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+    text-align: left;
+}
+.cl-doc td {
+    padding: 0.45rem 0.75rem;
+    border: 1px solid var(--border);
+    color: var(--text2);
+    vertical-align: top;
+}
+.cl-doc tr:nth-child(even) td { background: var(--surface2); }
 
+/* Wordmark */
 .cl-wordmark {
     font-family: 'Instrument Serif', serif;
-    font-size: 1.5rem;
-    color: #fafaf8;
+    font-size: 1.15rem;
+    color: #f0ebe0;
     letter-spacing: -0.01em;
 }
-.cl-wordmark span {
-    color: #fbbf24;
-}
+.cl-wordmark span { color: #ea7c2b; }
 
-.cl-page-title {
+/* Page hero */
+.cl-hero-title {
     font-family: 'Instrument Serif', serif;
-    font-size: 2.6rem;
+    font-size: 2.1rem;
     font-weight: 400;
     color: var(--text);
-    line-height: 1.15;
+    line-height: 1.2;
     letter-spacing: -0.02em;
 }
-.cl-page-title em {
-    font-style: italic;
-    color: var(--accent);
-}
-
-.cl-sub {
-    font-size: 0.95rem;
-    color: var(--text2);
-    font-weight: 300;
+.cl-hero-title em { font-style: italic; color: var(--accent); }
+.cl-hero-sub {
+    font-size: 0.88rem;
+    color: var(--text3);
+    font-weight: 400;
     line-height: 1.6;
     margin-top: 0.5rem;
-    max-width: 520px;
 }
 
-.cl-badge {
-    display: inline-block;
-    background: var(--accent-light);
-    color: var(--accent-dark);
-    border: 1px solid #fde68a;
-    border-radius: 100px;
-    font-size: 0.68rem;
+/* Section title */
+.cl-section-title {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.95rem;
     font-weight: 600;
-    letter-spacing: 0.05em;
-    padding: 0.18rem 0.7rem;
-    margin-right: 0.3rem;
-    margin-top: 0.3rem;
-    font-family: 'DM Mono', monospace;
+    color: var(--text);
+    margin-bottom: 0.1rem;
 }
 
+/* Label */
 .cl-label {
-    font-size: 0.68rem;
+    font-size: 0.66rem;
     font-weight: 600;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--text3);
-    margin-bottom: 0.6rem;
+    margin-bottom: 0.5rem;
 }
 
-.cl-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 1.6rem 1.8rem;
-    margin-bottom: 1rem;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-}
-
-.cl-card-accent {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-top: 3px solid var(--accent);
-    border-radius: 12px;
-    padding: 1.6rem 1.8rem;
-    margin-bottom: 1rem;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-}
-
-.cl-card p {
-    font-size: 0.88rem;
-    line-height: 1.85;
-    color: var(--text2);
-    white-space: pre-wrap;
-    margin: 0;
-}
-
+/* Metric card */
 .cl-metric {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 1rem 1.2rem;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    border-radius: 8px;
+    padding: 0.8rem 1rem;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
 }
 .cl-metric-val {
     font-family: 'Instrument Serif', serif;
-    font-size: 1.8rem;
+    font-size: 1.45rem;
     color: var(--accent);
     line-height: 1;
-}
-.cl-metric-label {
-    font-size: 0.68rem;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text3);
-    margin-bottom: 0.3rem;
+    margin-top: 0.2rem;
 }
 
+/* Info row */
 .cl-info {
     background: var(--surface2);
-    border-radius: 8px;
-    padding: 0.9rem 1.2rem;
-    margin-bottom: 0.6rem;
+    border-radius: 7px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.5rem;
     font-size: 0.82rem;
     color: var(--text2);
-    line-height: 1.65;
+    line-height: 1.6;
 }
 .cl-info-label {
-    font-size: 0.65rem;
+    font-size: 0.64rem;
     font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--text3);
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.2rem;
 }
 
+/* Domain pie description row */
+.cl-domain-row {
+    display: flex;
+    align-items: center;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.82rem;
+    color: var(--text2);
+}
+.cl-domain-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    margin-right: 0.6rem;
+    flex-shrink: 0;
+}
+
+/* Pills */
 .cl-pill {
     display: inline-flex;
     align-items: center;
-    padding: 0.28rem 0.75rem;
+    padding: 0.22rem 0.65rem;
     border-radius: 100px;
-    font-size: 0.75rem;
+    font-size: 0.73rem;
     font-weight: 500;
-    margin: 0.15rem;
+    margin: 0.12rem;
     border: 1px solid;
 }
-.pill-amber { background: var(--accent-light); border-color: #fde68a; color: var(--accent-dark); }
+.pill-amber { background: var(--accent-light); border-color: #fbbf9a; color: var(--accent); }
 .pill-stone { background: var(--surface2); border-color: var(--border2); color: var(--text2); }
-.pill-green { background: var(--green-bg); border-color: #a7f3d0; color: var(--green); }
-.pill-red   { background: var(--red-bg); border-color: #fecaca; color: var(--red); }
-.pill-blue  { background: var(--blue-bg); border-color: #bfdbfe; color: var(--blue); }
+.pill-green { background: var(--green-bg); border-color: var(--green-border); color: var(--green); }
+.pill-red   { background: var(--red-bg); border-color: var(--red-border); color: var(--red); }
+.pill-blue  { background: var(--blue-bg); border-color: var(--blue-border); color: var(--blue); }
 
-.cl-oos {
-    background: var(--red-bg);
-    border: 1px solid #fecaca;
-    border-left: 4px solid var(--red);
-    border-radius: 8px;
-    padding: 1rem 1.4rem;
-    margin: 0.8rem 0;
-}
-.cl-oos-title { font-size: 0.75rem; font-weight: 700; color: var(--red); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 0.35rem; }
-.cl-oos-body  { font-size: 0.82rem; color: var(--text2); line-height: 1.65; }
-
-.cl-nudge {
-    background: var(--accent-light);
-    border: 1px solid #fde68a;
-    border-radius: 8px;
-    padding: 0.8rem 1.2rem;
-    font-size: 0.82rem;
-    color: var(--accent-dark);
-    margin-bottom: 1rem;
-}
-
+/* Type tag inline */
 .cl-type-tag {
     display: inline-block;
     background: var(--accent-light);
-    border: 1px solid #fde68a;
-    color: var(--accent-dark);
-    padding: 0.2rem 0.65rem;
+    border: 1px solid #fbbf9a;
+    color: var(--accent);
+    padding: 0.15rem 0.6rem;
     border-radius: 100px;
-    font-size: 0.68rem;
+    font-size: 0.66rem;
     font-weight: 600;
     font-family: 'DM Mono', monospace;
     letter-spacing: 0.04em;
-    margin-left: 0.6rem;
+    margin-left: 0.5rem;
     vertical-align: middle;
 }
 
-.cl-section-title {
-    font-family: 'Instrument Serif', serif;
-    font-size: 1.2rem;
-    color: var(--text);
-    margin-bottom: 0.2rem;
-    font-weight: 400;
+/* Nudge */
+.cl-nudge {
+    background: var(--accent-light);
+    border: 1px solid #fbbf9a;
+    border-radius: 7px;
+    padding: 0.65rem 1rem;
+    font-size: 0.8rem;
+    color: var(--accent);
+    margin-bottom: 0.8rem;
 }
 
+/* Out-of-scope */
+.cl-oos {
+    background: var(--red-bg);
+    border: 1px solid var(--red-border);
+    border-left: 3px solid var(--red);
+    border-radius: 7px;
+    padding: 0.8rem 1.2rem;
+    margin: 0.6rem 0;
+}
+.cl-oos-title { font-size: 0.72rem; font-weight: 700; color: var(--red); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.25rem; }
+.cl-oos-body  { font-size: 0.8rem; color: var(--text2); line-height: 1.6; }
+
+/* Chat */
 .chat-user {
     background: var(--surface2);
     border: 1px solid var(--border);
-    border-left: 3px solid var(--accent);
-    border-radius: 0 8px 8px 0;
-    padding: 0.8rem 1.1rem;
-    margin-bottom: 0.5rem;
-    font-size: 0.84rem;
+    border-left: 2px solid var(--accent-mid);
+    border-radius: 0 7px 7px 0;
+    padding: 0.65rem 1rem;
+    margin-bottom: 0.4rem;
+    font-size: 0.83rem;
     color: var(--text);
 }
 .chat-ai {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-left: 3px solid var(--green);
-    border-radius: 0 8px 8px 0;
-    padding: 0.8rem 1.1rem;
-    margin-bottom: 0.9rem;
-    font-size: 0.84rem;
+    border-left: 2px solid var(--green);
+    border-radius: 0 7px 7px 0;
+    padding: 0.65rem 1rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.83rem;
     color: var(--text2);
     line-height: 1.75;
     white-space: pre-wrap;
 }
 .chat-who {
-    font-size: 0.62rem;
+    font-size: 0.61rem;
     font-weight: 600;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.09em;
     text-transform: uppercase;
-    margin-bottom: 0.3rem;
+    margin-bottom: 0.25rem;
     font-family: 'DM Mono', monospace;
 }
 .chat-who.u { color: var(--accent); }
 .chat-who.a { color: var(--green); }
 
-.divider {
-    height: 1px;
-    background: var(--border);
-    margin: 1.2rem 0;
+/* Competitor chip */
+.comp-chip {
+    display: inline-flex; align-items: center;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: 100px;
+    padding: 0.2rem 0.65rem;
+    font-size: 0.75rem;
+    color: var(--text2);
+    margin: 0.15rem;
+    cursor: pointer;
 }
+.comp-chip:hover { background: var(--accent-light); border-color: var(--accent-mid); color: var(--accent); }
 
-/* Animate in */
-@keyframes fadeUp {
-    from { opacity: 0; transform: translateY(12px); }
-    to   { opacity: 1; transform: translateY(0); }
-}
-.cl-card, .cl-metric, .cl-info { animation: fadeUp 0.25s ease both; }
+/* Fade-in */
+@keyframes fadeUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+.cl-doc, .cl-metric, .cl-info { animation: fadeUp 0.2s ease both; }
 </style>
 """, unsafe_allow_html=True)
 
 # ── Session state ──────────────────────────────────────────────────────────────
 for key in ["rfp_text","file_name","customer_brief","pain_analysis","solution_rec",
             "competitive","product_map","exec_summary","domains","vis_cmo","vis_fmo",
-            "vis_threat","vis_traceability","vis_vendor","doc_summaries"]:
+            "vis_threat","vis_traceability","vis_vendor","doc_summaries","rfp_context",
+            "competitor_names","suggested_competitors"]:
     if key not in st.session_state:
         st.session_state[key] = None
 if "chat_history" not in st.session_state:
@@ -503,101 +473,141 @@ def rfp_type_tag():
     return f"<span class='cl-type-tag'>{t}</span>" if t else ""
 
 def classify_nudge():
-    st.markdown("""
-    <div class='cl-nudge'>
-        <strong>Tip:</strong> Run <strong>Domain Classification</strong> first (Domains tab)
-        to enable scope detection — modules will automatically mark as In Scope or Out of Scope.
-    </div>""", unsafe_allow_html=True)
+    st.markdown("<div class='cl-nudge'>💡 <strong>Run Domain Classification first</strong> — Clarivo will detect scope, classify the RFP type, and adapt every module accordingly.</div>", unsafe_allow_html=True)
 
-def out_of_scope_banner(reason):
-    st.markdown(f"""
-    <div class='cl-oos'>
-        <div class='cl-oos-title'>⊘ Out of Scope for This RFP</div>
-        <div class='cl-oos-body'>{reason}</div>
-    </div>""", unsafe_allow_html=True)
+def render_doc_content(content, session_key=None):
+    """Render LLM markdown as clean document HTML — dark text, structured headings, tables."""
+    import re
+    if not content:
+        return
+    # Convert markdown to document HTML
+    html = content
+    # H2 → section heading (amber uppercase)
+    html = re.sub(r'^## (.+)$', r"<h2>\1</h2>", html, flags=re.MULTILINE)
+    # H3 → subheading
+    html = re.sub(r'^### (.+)$', r"<h3>\1</h3>", html, flags=re.MULTILINE)
+    # Bold
+    html = re.sub(r'\*\*(.+?)\*\*', r"<strong>\1</strong>", html)
+    # Bullet lists
+    lines = html.split('\n')
+    out, in_list, in_table = [], False, False
+    thead_done = False
+    for line in lines:
+        stripped = line.strip()
+        # Table rows
+        if stripped.startswith('|') and stripped.endswith('|'):
+            if not in_table:
+                out.append('<table>')
+                in_table = True
+                thead_done = False
+            cells = [c.strip() for c in stripped[1:-1].split('|')]
+            # separator row
+            if all(set(c.replace('-','').replace(':','').replace(' ','')) == set() or c.strip('-: ') == '' for c in cells):
+                out.append('<thead><tr>' + ''.join(f'<th>{c}</th>' for c in _last_row_cells) + '</tr></thead><tbody>')
+                thead_done = True
+                continue
+            _last_row_cells = cells
+            if thead_done:
+                out.append('<tr>' + ''.join(f'<td>{c}</td>' for c in cells) + '</tr>')
+            else:
+                _last_row_cells = cells
+            continue
+        else:
+            if in_table:
+                if not thead_done:
+                    # no separator — just plain table
+                    out.append('<thead><tr>' + ''.join(f'<th>{c}</th>' for c in _last_row_cells) + '</tr></thead><tbody>')
+                out.append('</tbody></table>')
+                in_table = False
+                thead_done = False
 
-def dynamic_desc():
-    t = get_rfp_type() or "IT Services"
-    return {
-        "customer_brief": f"Who the customer is, why this {t} RFP exists, decision makers, strategic priorities, and entry points.",
-        "pain_analysis":  f"Surface requirements vs real business pains for this {t} engagement — ranked, with business impact and evidence.",
-        "solution_rec":   f"What to propose for this {t} RFP — architecture, service model, phasing, commercial strategy, and POC.",
-        "competitive":    f"Who is likely bidding on this {t} deal, threat by competitor, where we win vs lose, counter-strategies.",
-        "product_map":    f"Domain-by-domain vendor and product recommendations for this {t} RFP — justified against actual requirements.",
-        "exec_summary":   f"Board-ready 500-600 word executive summary — business case, solution, value, and why us.",
-    }
+        # Bullet
+        if stripped.startswith('* ') or stripped.startswith('- '):
+            if not in_list: out.append('<ul>'); in_list = True
+            out.append(f"<li>{stripped[2:]}</li>")
+        else:
+            if in_list: out.append('</ul>'); in_list = False
+            if stripped.startswith('<h') or not stripped:
+                out.append(stripped if stripped else '')
+            else:
+                out.append(f"<p>{stripped}</p>")
 
-def get_chat_suggestions():
-    t = get_rfp_type() or ""
-    base = ["What is the contract value and duration?", "What are the mandatory requirements?",
-            "What compliance frameworks are specified?", "What is the implementation timeline?"]
-    extras = {
-        "Cybersecurity":             ["What SOC model is required?", "Which security tools are specified or preferred?"],
-        "Infrastructure Services":   ["What are the uptime SLAs and penalty clauses?", "Is cloud migration in scope?"],
-        "Application Managed Services": ["What support tiers are required — L1, L2, L3?", "What are the P1 resolution SLAs?"],
-        "End User Computing":        ["What is the endpoint count and device split?", "Is VDI in scope?"],
-        "Multi-Tower":               ["Which towers are mandatory vs optional?", "Is this a full outsourcing deal?"],
-    }
-    return (base[:3] + extras.get(t, ["What support model is required?", "What existing tools must be retained?"]))[:6]
+    if in_list: out.append('</ul>')
+    if in_table: out.append('</tbody></table>')
 
-# ── Sidebar — dark panel, Claude-like ─────────────────────────────────────────
+    final_html = '\n'.join(out)
+    st.markdown(f"<div class='cl-doc'>{final_html}</div>", unsafe_allow_html=True)
+
+    if session_key and st.button("↺ Regenerate", key=f"regen_{session_key}"):
+        st.session_state[session_key] = None
+        st.rerun()
+
+# ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
+    # Wordmark
     st.markdown("""
-    <div style='padding: 1.2rem 0.8rem 0.8rem'>
+    <div style='padding:1.1rem 0.9rem 0.6rem'>
         <div class='cl-wordmark'>Clari<span>vo</span></div>
-        <div style='font-family:DM Mono,monospace;font-size:0.65rem;color:#a8a29e;margin-top:0.3rem'>
-            RFP Intelligence · v3.1
-        </div>
+        <div style='font-size:0.65rem;color:#5a5248;font-family:DM Mono,monospace;margin-top:0.2rem'>RFP Intelligence · v3.2</div>
     </div>
     """, unsafe_allow_html=True)
+    st.markdown("<div style='height:1px;background:#2a2620;margin:0 0.9rem 0.9rem'></div>", unsafe_allow_html=True)
 
-    st.markdown("<div style='height:1px;background:rgba(255,255,255,0.08);margin:0 0.8rem 1rem'></div>", unsafe_allow_html=True)
-
+    # API key
     api_key = st.secrets.get("GROQ_API_KEY", "") if hasattr(st, "secrets") else ""
     if not api_key:
         api_key = st.text_input("Groq API Key", type="password", placeholder="gsk_...")
     if api_key:
         os.environ["GROQ_API_KEY"] = api_key
-        st.markdown("<div style='font-size:0.75rem;color:#6ee7b7;padding:0.3rem 0.5rem;display:flex;align-items:center;gap:0.4rem'>✓ &nbsp;Connected</div>", unsafe_allow_html=True)
+        st.markdown("<div style='font-size:0.75rem;color:#6ee7b7;padding:0.2rem 0.9rem 0.6rem'>✓ Connected</div>", unsafe_allow_html=True)
 
-    st.markdown("<div style='height:1px;background:rgba(255,255,255,0.08);margin:0.8rem 0.8rem'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:1px;background:#2a2620;margin:0 0.9rem 0.75rem'></div>", unsafe_allow_html=True)
 
+    # RFP type if classified
     rfp_t = get_rfp_type()
     if rfp_t:
         st.markdown(f"""
-        <div style='padding:0 0.5rem 0.8rem'>
-            <div style='font-size:0.62rem;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:#78716c;margin-bottom:0.3rem'>RFP Type</div>
-            <div style='font-size:0.82rem;color:#fbbf24;font-weight:600'>{rfp_t}</div>
-        </div>""", unsafe_allow_html=True)
+        <div style='padding:0 0.9rem 0.75rem'>
+            <div style='font-size:0.6rem;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:#5a5248;margin-bottom:0.2rem'>RFP TYPE</div>
+            <div style='font-size:0.82rem;color:#ea7c2b;font-weight:600'>{rfp_t}</div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown("<div style='height:1px;background:#2a2620;margin:0 0.9rem 0.75rem'></div>", unsafe_allow_html=True)
 
-    st.markdown("<div style='padding:0 0.5rem'>", unsafe_allow_html=True)
-    st.markdown("<div style='font-size:0.62rem;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:#78716c;margin-bottom:0.6rem'>Modules</div>", unsafe_allow_html=True)
-    mods = ["Customer Brief","Pain Analysis","Solution Recommendation","Competitive Intelligence",
-            "Product & Vendor Mapping","Executive Summary","Domain Classification","Visual Intelligence","Chat"]
-    for m in mods:
-        st.markdown(f"<div style='font-size:0.76rem;color:#a8a29e;padding:0.18rem 0'>· {m}</div>", unsafe_allow_html=True)
+    # Module list
+    st.markdown("<div style='padding:0 0.9rem'>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:0.6rem;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:#5a5248;margin-bottom:0.5rem'>MODULES</div>", unsafe_allow_html=True)
+    module_states = {
+        "Customer Brief": bool(st.session_state.customer_brief),
+        "Pain Analysis": bool(st.session_state.pain_analysis),
+        "Solution Rec": bool(st.session_state.solution_rec),
+        "Competitive": bool(st.session_state.competitive),
+        "Product Mapping": bool(st.session_state.product_map),
+        "Exec Summary": bool(st.session_state.exec_summary),
+        "Domain Classification": isinstance(st.session_state.domains, dict),
+    }
+    for m, done in module_states.items():
+        dot_col = "#ea7c2b" if done else "#3a3630"
+        st.markdown(f"<div style='display:flex;align-items:center;gap:0.5rem;padding:0.2rem 0'><div style='width:6px;height:6px;border-radius:50%;background:{dot_col};flex-shrink:0'></div><div style='font-size:0.75rem;color:{'#c8c0b4' if done else '#5a5248'}'>{m}</div></div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
+    # Document info + reset
     if st.session_state.rfp_text:
-        st.markdown("<div style='height:1px;background:rgba(255,255,255,0.08);margin:0.8rem'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:1px;background:#2a2620;margin:0.75rem 0.9rem'></div>", unsafe_allow_html=True)
         doms = get_domains_list()
-        dom_str = f"{len(doms)} domains" if doms else "Not classified"
         st.markdown(f"""
-        <div style='padding:0 0.5rem'>
-            <div style='font-size:0.62rem;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:#78716c;margin-bottom:0.4rem'>Active Document</div>
-            <div style='font-size:0.78rem;color:#fbbf24'>📄 {st.session_state.file_name}</div>
-            <div style='font-size:0.7rem;color:#78716c;margin-top:0.2rem'>{len(st.session_state.rfp_text.split()):,} words · {dom_str}</div>
-        </div>""", unsafe_allow_html=True)
-        if st.session_state.doc_summaries:
-            for doc in st.session_state.doc_summaries:
-                icon  = "✓" if doc["status"] == "success" else "✗"
-                color = "#6ee7b7" if doc["status"] == "success" else "#fca5a5"
-                st.markdown(f"<div style='font-size:0.7rem;color:{color};padding:0.1rem 0.5rem'>{icon} {doc['name']}</div>", unsafe_allow_html=True)
-        st.markdown("<div style='padding:0.8rem 0.5rem 0'>", unsafe_allow_html=True)
-        if st.button("↺ Reset Session"):
+        <div style='padding:0 0.9rem'>
+            <div style='font-size:0.6rem;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:#5a5248;margin-bottom:0.3rem'>DOCUMENT</div>
+            <div style='font-size:0.75rem;color:#ea7c2b;word-break:break-all'>{st.session_state.file_name}</div>
+            <div style='font-size:0.68rem;color:#5a5248;margin-top:0.15rem'>{len(st.session_state.rfp_text.split()):,} words</div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown("<div style='padding:0.6rem 0.9rem 0'>", unsafe_allow_html=True)
+        if st.button("↺ New Document", use_container_width=True):
             for key in ["rfp_text","file_name","customer_brief","pain_analysis","solution_rec",
                         "competitive","product_map","exec_summary","domains","vis_cmo","vis_fmo",
-                        "vis_threat","vis_traceability","vis_vendor","doc_summaries"]:
+                        "vis_threat","vis_traceability","vis_vendor","doc_summaries","rfp_context",
+                        "competitor_names","suggested_competitors"]:
                 st.session_state[key] = None
             st.session_state.chat_history = []
             st.rerun()
@@ -608,20 +618,15 @@ with st.sidebar:
 # ══════════════════════════════════════════════════════════════════════════════
 if not st.session_state.rfp_text:
 
-    # Hero
+    st.markdown("<div style='height:2.5rem'></div>", unsafe_allow_html=True)
+
+    # Greeting hero
     st.markdown("""
-    <div style='padding: 3.5rem 0 2rem'>
-        <div class='cl-page-title'>Turn any RFP into<br>a <em>winning proposal.</em></div>
-        <div class='cl-sub'>
-            Upload an RFP — Clarivo reads it, classifies the service domain, detects what's in scope,
-            and generates proposal-ready intelligence in minutes.
-        </div>
-        <div style='margin-top:1.2rem'>
-            <span class='cl-badge'>CYBERSECURITY</span>
-            <span class='cl-badge'>INFRASTRUCTURE</span>
-            <span class='cl-badge'>AMS</span>
-            <span class='cl-badge'>END USER COMPUTING</span>
-            <span class='cl-badge'>MULTI-TOWER</span>
+    <div style='max-width:640px;margin-bottom:2rem'>
+        <div class='cl-hero-title'>Hello. I'm here to help you build<br><em>clear, sound intelligence</em> from any RFP.</div>
+        <div class='cl-hero-sub' style='margin-top:0.75rem'>
+            Upload your RFP and Clarivo reads it end-to-end — classifying scope, mapping vendors, surfacing pains,
+            and generating proposal-ready content across any IT service domain.
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -629,13 +634,23 @@ if not st.session_state.rfp_text:
     col1, col2 = st.columns([3, 2], gap="large")
 
     with col1:
-        st.markdown("<div class='cl-label'>Upload RFP · PDF or Word · Single or Multiple Files</div>", unsafe_allow_html=True)
+        # Optional context hint
+        st.markdown("<div class='cl-label'>Upload RFP · PDF or Word</div>", unsafe_allow_html=True)
         uploaded_files = st.file_uploader(
-            "Upload RFP",
-            type=["pdf", "docx"],
+            "Upload RFP", type=["pdf","docx"],
             accept_multiple_files=True,
             label_visibility="collapsed"
         )
+
+        # Optional context box
+        with st.expander("Add context or focus area (optional)", expanded=False):
+            st.session_state.rfp_context = st.text_area(
+                "Focus area",
+                placeholder="e.g. This is a hybrid IT outsourcing deal — focus on infrastructure and AMS towers. We are bidding against TCS and HCL.",
+                height=80,
+                label_visibility="collapsed"
+            )
+
         if uploaded_files:
             if not api_key:
                 st.warning("Enter your Groq API Key in the sidebar to continue.")
@@ -643,9 +658,7 @@ if not st.session_state.rfp_text:
                 with st.spinner(f"Reading {len(uploaded_files)} document(s)..."):
                     if len(uploaded_files) == 1:
                         text = extract_text_from_file(uploaded_files[0])
-                        summaries = [{"name": uploaded_files[0].name,
-                                      "words": len(text.split()) if text else 0,
-                                      "status": "success" if text else "failed"}]
+                        summaries = [{"name": uploaded_files[0].name, "words": len(text.split()) if text else 0, "status": "success" if text else "failed"}]
                         file_name = uploaded_files[0].name
                     else:
                         text, summaries = extract_multiple_files(uploaded_files)
@@ -656,367 +669,418 @@ if not st.session_state.rfp_text:
                         st.session_state.doc_summaries = summaries
                         st.rerun()
                     else:
-                        st.error("Could not extract text. Check your files and try again.")
-
-        st.markdown("""
-        <div style='text-align:center;color:var(--text3);font-size:0.75rem;margin:1.2rem 0 0.8rem'>
-            — or try a sample —
-        </div>""", unsafe_allow_html=True)
-
-        sample_choice = st.selectbox("Sample RFP type", list(SAMPLE_RFPS.keys()), label_visibility="collapsed")
-        c1, c2, c3 = st.columns([1, 2, 1])
-        with c2:
-            if st.button("Load Sample →", use_container_width=True):
-                if not api_key:
-                    st.warning("Enter your Groq API Key in the sidebar first.")
-                else:
-                    t = SAMPLE_RFPS[sample_choice]
-                    st.session_state.rfp_text      = t
-                    st.session_state.file_name     = sample_choice + ".txt"
-                    st.session_state.doc_summaries = [{"name": sample_choice, "words": len(t.split()), "status": "success"}]
-                    st.rerun()
+                        st.error("Could not extract text. Check your files.")
 
     with col2:
-        st.markdown("<div class='cl-label'>Works for any RFP type</div>", unsafe_allow_html=True)
-        for rfp_t, desc in [
-            ("Cybersecurity",              "SOC, SIEM, EDR, Zero Trust, GRC"),
-            ("Infrastructure Services",    "DC ops, cloud migration, network, storage"),
-            ("Application Managed Services", "SAP/ERP, L1–L3 support, releases"),
-            ("End User Computing",         "Helpdesk, M365, device management, VDI"),
-            ("Digital Workplace",          "Teams, SharePoint, Purview, identity"),
-            ("Data & Analytics",           "Data platform, BI, ETL, governance"),
-            ("Multi-Tower",                "Any combination of the above"),
+        st.markdown("<div class='cl-label'>What Clarivo gives you</div>", unsafe_allow_html=True)
+        for cap, desc in [
+            ("Customer Intelligence", "Who they are, why now, decision makers"),
+            ("Pain Analysis", "Real needs beneath the stated requirements"),
+            ("Solution Recommendation", "What to propose, how to phase, volume tables"),
+            ("Competitive Intelligence", "Who's bidding and exactly how to beat them"),
+            ("Domain Scope Map", "Pie chart of scope across all IT towers"),
+            ("PPT + Word Export", "Charts, architecture, tables — ready to send"),
         ]:
-            st.markdown(f"""
-            <div class='cl-info'>
-                <div class='cl-info-label'>{rfp_t}</div>
-                <div>{desc}</div>
-            </div>""", unsafe_allow_html=True)
+            st.markdown(f"<div class='cl-info'><div class='cl-info-label'>{cap}</div>{desc}</div>", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN ANALYSIS SCREEN
 # ══════════════════════════════════════════════════════════════════════════════
 else:
-    # Page title — adapts to RFP type
-    rfp_t    = get_rfp_type()
-    fn_short = st.session_state.file_name[:50] + ("…" if len(st.session_state.file_name) > 50 else "")
-    type_str = f" · <em>{rfp_t}</em>" if rfp_t else ""
+    rfp_t     = get_rfp_type()
+    fn_short  = st.session_state.file_name[:55] + ("…" if len(st.session_state.file_name) > 55 else "")
+    type_disp = f" · <em style='color:var(--accent);font-style:italic'>{rfp_t}</em>" if rfp_t else ""
 
     st.markdown(f"""
-    <div style='padding:2rem 0 1.2rem'>
-        <div class='cl-page-title' style='font-size:1.9rem'>
-            {fn_short}{type_str}
+    <div style='padding:1.8rem 0 1rem'>
+        <div style='font-family:Instrument Serif,serif;font-size:1.5rem;font-weight:400;color:var(--text);letter-spacing:-0.01em'>
+            {fn_short}{type_disp}
         </div>
-        <div style='font-size:0.82rem;color:var(--text3);margin-top:0.3rem;font-family:DM Mono,monospace'>
+        <div style='font-size:0.72rem;color:var(--text3);margin-top:0.2rem;font-family:DM Mono,monospace'>
             {len(st.session_state.rfp_text.split()):,} words extracted
-            {'· ' + str(len(get_domains_list())) + ' domains identified' if get_domains_list() else ''}
+            {'&nbsp;·&nbsp;' + str(len(get_domains_list())) + ' domains' if get_domains_list() else ''}
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # Metrics
-    cols = st.columns(5, gap="small")
-    n_modules = sum(1 for k in ["customer_brief","pain_analysis","solution_rec","competitive","product_map","exec_summary"] if st.session_state.get(k))
-    for col, (label, val, highlight) in zip(cols, [
+    # Compact metrics
+    m_cols = st.columns(5, gap="small")
+    n_mod = sum(1 for k in ["customer_brief","pain_analysis","solution_rec","competitive","product_map","exec_summary"] if st.session_state.get(k))
+    for col, (lbl, val, hl) in zip(m_cols, [
         ("Words",        f"{len(st.session_state.rfp_text.split()):,}", False),
         ("RFP Type",     rfp_t or "—",                                   bool(rfp_t)),
         ("Domains",      str(len(get_domains_list())) if get_domains_list() else "—", False),
-        ("Modules Run",  str(n_modules) + " / 6",                        False),
+        ("Modules",      f"{n_mod}/6",                                   False),
         ("Chat Q&A",     str(len(st.session_state.chat_history)//2),     False),
     ]):
         with col:
-            color = "var(--accent)" if highlight else "var(--text)"
+            val_col = "var(--accent)" if hl else "var(--text)"
             st.markdown(f"""
             <div class='cl-metric'>
-                <div class='cl-metric-label'>{label}</div>
-                <div class='cl-metric-val' style='color:{color};font-size:1.3rem'>{val}</div>
+                <div class='cl-label' style='margin-bottom:0.15rem'>{lbl}</div>
+                <div class='cl-metric-val' style='color:{val_col}'>{val}</div>
             </div>""", unsafe_allow_html=True)
 
-    st.markdown("<div style='height:1.5rem'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:0.75rem'></div>", unsafe_allow_html=True)
 
-    # Export row
-    st.markdown("<div class='cl-label'>Export</div>", unsafe_allow_html=True)
-    ec1, ec2, ec3, ec4 = st.columns([3, 1, 1, 2], gap="small")
-    with ec1:
-        st.markdown("<div style='font-size:0.82rem;color:var(--text2);padding:0.45rem 0'>Generate proposal documents from your completed analysis:</div>", unsafe_allow_html=True)
-    with ec2:
+    # Export row — minimal
+    ex1, ex2, ex3, ex4 = st.columns([3,1,1,2], gap="small")
+    with ex1:
+        st.markdown("<div style='font-size:0.8rem;color:var(--text3);padding:0.4rem 0'>Export your analysis as a proposal document:</div>", unsafe_allow_html=True)
+    with ex2:
         if st.button("📄 Word", key="btn_word", use_container_width=True):
             if not any([st.session_state.customer_brief, st.session_state.exec_summary]):
-                st.warning("Run Customer Brief or Executive Summary first.")
+                st.warning("Run at least one module first.")
             else:
-                with st.spinner("Generating Word doc..."):
+                with st.spinner("Generating…"):
                     try:
                         from utils.export_word import generate_word_doc
                         path = generate_word_doc(st.session_state)
-                        with open(path, "rb") as f:
-                            st.download_button("⬇ Download", f, file_name="Clarivo_Proposal.docx",
-                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key="dl_word")
-                    except Exception as e:
-                        st.error(f"Export error: {e}")
-    with ec3:
+                        with open(path,"rb") as f:
+                            st.download_button("⬇ Download",f,file_name="Clarivo_Proposal.docx",
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",key="dl_word")
+                    except Exception as e: st.error(f"Error: {e}")
+    with ex3:
         if st.button("📊 PPT", key="btn_ppt", use_container_width=True):
             if not any([st.session_state.customer_brief, st.session_state.exec_summary]):
-                st.warning("Run Customer Brief or Executive Summary first.")
+                st.warning("Run at least one module first.")
             else:
-                with st.spinner("Generating PowerPoint..."):
+                with st.spinner("Generating…"):
                     try:
                         from utils.export_ppt import generate_ppt
                         path = generate_ppt(st.session_state)
-                        with open(path, "rb") as f:
-                            st.download_button("⬇ Download", f, file_name="Clarivo_Presentation.pptx",
-                                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation", key="dl_ppt")
-                    except Exception as e:
-                        st.error(f"Export error: {e}")
-    with ec4:
-        st.markdown("<div style='font-size:0.75rem;color:var(--text3);padding:0.45rem 0'>Run Domain Classification first for the richest, scope-aware exports</div>", unsafe_allow_html=True)
+                        with open(path,"rb") as f:
+                            st.download_button("⬇ Download",f,file_name="Clarivo_Presentation.pptx",
+                                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",key="dl_ppt")
+                    except Exception as e: st.error(f"Error: {e}")
+    with ex4:
+        st.markdown("<div style='font-size:0.72rem;color:var(--text4);padding:0.4rem 0'>PPT includes charts, architecture, and domain scope visuals</div>", unsafe_allow_html=True)
 
-    st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:0.3rem'></div>", unsafe_allow_html=True)
 
     # ── Tabs ──────────────────────────────────────────────────────────────────
-    tab1,tab2,tab3,tab4,tab5,tab6,tab7,tab8,tab9 = st.tabs([
-        "Customer Brief","Pain Analysis","Solution Rec",
-        "Competitive","Product Mapping","Exec Summary",
-        "Domains","Visuals","Chat",
-    ])
+    tabs = st.tabs(["Customer Brief","Pain Analysis","Solution Rec",
+                    "Competitive","Product Mapping","Exec Summary",
+                    "Domains","Visuals","Chat"])
+    tab1,tab2,tab3,tab4,tab5,tab6,tab7,tab8,tab9 = tabs
 
-    descs = dynamic_desc()
+    def tab_header(title, show_type=True):
+        tag = rfp_type_tag() if show_type else ""
+        st.markdown(f"<div style='height:0.25rem'></div><div class='cl-section-title'>{title}{tag}</div><div style='height:0.5rem'></div>", unsafe_allow_html=True)
 
-    def render_tab(tab, sk, btn_label, btn_key, fn, title, always=False):
+    def about_row(text):
+        st.markdown(f"<div class='cl-info'><div class='cl-info-label'>About this module</div>{text}</div>", unsafe_allow_html=True)
+
+    def simple_tab(tab, sk, btn_label, btn_key, fn, title, about_text):
         with tab:
-            st.markdown(f"<div style='height:0.3rem'></div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='cl-section-title'>{title}{rfp_type_tag()}</div>", unsafe_allow_html=True)
-            st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
-
-            if not get_rfp_type() and sk not in ("customer_brief","exec_summary"):
+            tab_header(title)
+            if not get_rfp_type():
                 classify_nudge()
-
             if not st.session_state[sk]:
-                st.markdown(f"<div class='cl-info'><div class='cl-info-label'>About</div><div>{descs.get(sk,'')}</div></div>", unsafe_allow_html=True)
+                about_row(about_text)
                 if st.button(btn_label, key=btn_key):
-                    with st.spinner(f"Generating {title.lower()}..."):
-                        st.session_state[sk] = fn(st.session_state.rfp_text)
+                    with st.spinner("Generating…"):
+                        ctx = st.session_state.rfp_context or ""
+                        st.session_state[sk] = fn(st.session_state.rfp_text + ("\n\nCONTEXT:\n" + ctx if ctx else ""))
                         st.rerun()
             else:
-                content = st.session_state[sk]
-                if sk == "product_map":
-                    sections = content.split("### ")
-                    for sec in sections:
-                        if not sec.strip(): continue
-                        lines = sec.strip().split("\n")
-                        dtitle = lines[0].strip()
-                        body   = "\n".join(lines[1:]).strip()
-                        st.markdown(f"""
-                        <div class='cl-card-accent'>
-                            <div style='font-size:0.95rem;font-weight:600;color:var(--text);margin-bottom:0.6rem'>{dtitle}</div>
-                        </div>""", unsafe_allow_html=True)
-                        st.markdown(body)
-                else:
-                    st.markdown(f"<div class='cl-card'><p>{content}</p></div>", unsafe_allow_html=True)
-                if st.button("↺ Regenerate", key=f"regen_{sk}"):
-                    st.session_state[sk] = None
+                render_doc_content(st.session_state[sk], sk)
+
+    simple_tab(tab1,"customer_brief","Generate Customer Brief","btn_brief",generate_customer_brief,
+               "Customer Intelligence Brief",
+               "Who the customer is, why this RFP now, decision makers, entry points, red flags.")
+
+    simple_tab(tab2,"pain_analysis","Run Pain Analysis","btn_pain",generate_pain_analysis,
+               "Pain Point Analysis",
+               "Surface requirements vs real needs — ranked pains, compliance pressures, legacy constraints, what wins or loses the deal.")
+
+    simple_tab(tab3,"solution_rec","Generate Solution Recommendation","btn_solrec",generate_solution_recommendation,
+               "Solution Recommendation",
+               "Architecture, phasing, team model, SLAs, POC strategy, commercial approach. Includes volume/scope tables.")
+
+    simple_tab(tab6,"exec_summary","Generate Executive Summary","btn_execsum",generate_executive_summary,
+               "Executive Summary",
+               "Board-ready 500-600 word executive summary — business case, solution approach, value, and why us.")
+
+    simple_tab(tab5,"product_map","Map Products & Vendors","btn_prodmap",generate_product_mapping,
+               "Product & Vendor Mapping",
+               "Domain-by-domain recommendations — primary and alternatives, justified against actual RFP requirements.")
+
+    # ── Tab 4: Competitive — with competitor input ────────────────────────────
+    with tab4:
+        tab_header("Competitive Intelligence")
+        if not get_rfp_type():
+            classify_nudge()
+
+        # Competitor input panel
+        st.markdown("<div class='cl-info'><div class='cl-info-label'>Competitor Input</div>Name the competitors you know are bidding, or let Clarivo suggest the most likely ones based on the RFP.</div>", unsafe_allow_html=True)
+
+        c_input_col, c_btn_col = st.columns([4,1], gap="small")
+        with c_input_col:
+            comp_input = st.text_input(
+                "Competitor names",
+                placeholder="e.g. TCS, HCL, Wipro — or leave blank to auto-suggest",
+                label_visibility="collapsed",
+                key="comp_input_field"
+            )
+        with c_btn_col:
+            if st.button("Suggest", key="btn_suggest_comp", use_container_width=True):
+                with st.spinner("Identifying likely bidders…"):
+                    st.session_state.suggested_competitors = suggest_competitors(st.session_state.rfp_text)
                     st.rerun()
 
-    render_tab(tab1,"customer_brief","Generate Customer Brief","btn_brief",generate_customer_brief,"Customer Intelligence Brief",True)
-    render_tab(tab2,"pain_analysis","Run Pain Analysis","btn_pain",generate_pain_analysis,"Pain Point Analysis",True)
-    render_tab(tab3,"solution_rec","Generate Solution Recommendation","btn_solrec",generate_solution_recommendation,"Solution Recommendation",True)
-    render_tab(tab4,"competitive","Analyse Competitive Landscape","btn_comp",generate_competitive_landscape,"Competitive Intelligence",True)
-    render_tab(tab5,"product_map","Map Products & Vendors","btn_prodmap",generate_product_mapping,"Product & Vendor Mapping",True)
-    render_tab(tab6,"exec_summary","Generate Executive Summary","btn_execsum",generate_executive_summary,"Executive Summary",True)
+        # Show suggestions as clickable chips
+        if st.session_state.suggested_competitors:
+            st.markdown("<div style='margin:0.4rem 0 0.6rem'>", unsafe_allow_html=True)
+            st.markdown("<div class='cl-label'>Suggested competitors — click to add:</div>", unsafe_allow_html=True)
+            chips_html = "".join([f"<span class='comp-chip'>{c}</span>" for c in st.session_state.suggested_competitors])
+            st.markdown(f"<div style='margin-top:0.3rem'>{chips_html}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='font-size:0.73rem;color:var(--text3);margin-top:0.3rem'>Copy any names above into the input field, then click Analyse.</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
-    # ── Domains tab ───────────────────────────────────────────────────────────
-    with tab7:
         st.markdown("<div style='height:0.3rem'></div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='cl-section-title'>Domain & Scope Classification{rfp_type_tag()}</div>", unsafe_allow_html=True)
-        st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
-        st.markdown("""
-        <div class='cl-info'>
-            <div class='cl-info-label'>Why run this first</div>
-            <div>Clarivo reads the RFP, detects its type (Cybersecurity, Infrastructure, AMS, EUC, Multi-Tower, etc.),
-            identifies in-scope service domains, and flags out-of-scope towers — so every other module
-            adapts its language, vendors, and recommendations accordingly.</div>
-        </div>""", unsafe_allow_html=True)
 
-        if not isinstance(st.session_state.domains, dict):
-            if st.button("Classify Domains & Detect Scope", key="btn_domains"):
-                with st.spinner("Classifying RFP type and service domains..."):
-                    st.session_state.domains = classify_domains(st.session_state.rfp_text)
+        if not st.session_state.competitive:
+            btn_label = "Analyse Competitive Landscape"
+            if st.button(btn_label, key="btn_comp"):
+                with st.spinner("Generating competitive intelligence…"):
+                    ctx = st.session_state.rfp_context or ""
+                    rfp_plus = st.session_state.rfp_text + ("\n\nCONTEXT:\n" + ctx if ctx else "")
+                    named = comp_input.strip() or (", ".join(st.session_state.suggested_competitors) if st.session_state.suggested_competitors else "")
+                    if named:
+                        st.session_state.competitive = generate_competitive_with_competitors(rfp_plus, named)
+                    else:
+                        st.session_state.competitive = generate_competitive_landscape(rfp_plus)
                     st.rerun()
         else:
-            d              = st.session_state.domains
-            rfp_type_val   = d.get("rfp_type","Unknown")
-            service_model  = d.get("service_model","—")
-            key_metrics    = d.get("key_metrics",[])
-            domains_list   = d.get("detected_domains",[])
+            render_doc_content(st.session_state.competitive, "competitive")
+
+    # ── Tab 7: Domains — pie chart ────────────────────────────────────────────
+    with tab7:
+        tab_header("Domain & Scope Classification")
+        st.markdown("<div class='cl-info'><div class='cl-info-label'>What this does</div>Clarivo reads the RFP and builds a percentage scope breakdown across all IT service towers — visualised as a pie chart. For hybrid multi-tower deals, each domain gets a proportional weight based on requirements depth.</div>", unsafe_allow_html=True)
+
+        if not isinstance(st.session_state.domains, dict):
+            if st.button("Classify & Map Domain Scope", key="btn_domains"):
+                with st.spinner("Classifying RFP and mapping domain scope…"):
+                    ctx = st.session_state.rfp_context or ""
+                    rfp_plus = st.session_state.rfp_text + ("\n\nCONTEXT:\n" + ctx if ctx else "")
+                    st.session_state.domains = classify_domains(rfp_plus)
+                    st.rerun()
+        else:
+            d             = st.session_state.domains
+            rfp_type_val  = d.get("rfp_type","Unknown")
+            service_model = d.get("service_model","—")
+            key_metrics   = d.get("key_metrics",[])
+            domains_list  = d.get("detected_domains",[])
             domain_details = d.get("domain_details",{})
-            reasoning      = d.get("reasoning","")
+            reasoning     = d.get("reasoning","")
 
-            # Type + model
-            st.markdown(f"""
-            <div class='cl-card-accent'>
-                <div style='display:flex;gap:2rem;align-items:flex-start'>
-                    <div>
-                        <div class='cl-info-label'>RFP Type</div>
-                        <div style='font-family:Instrument Serif,serif;font-size:1.4rem;color:var(--accent)'>{rfp_type_val}</div>
-                    </div>
-                    <div style='border-left:1px solid var(--border);padding-left:2rem'>
-                        <div class='cl-info-label'>Service Model</div>
-                        <div style='font-size:0.9rem;font-weight:500;color:var(--text)'>{service_model}</div>
-                    </div>
-                </div>
-            </div>""", unsafe_allow_html=True)
+            # ── PIE CHART ────────────────────────────────────────────────────
+            import plotly.graph_objects as go
+            DOMAIN_COLORS = [
+                "#c2550a","#ea7c2b","#d97706","#92400e","#fbbf24",
+                "#166534","#1e40af","#6b21a8","#0e7490","#be185d",
+                "#374151","#065f46",
+            ]
 
-            # In-scope domains
-            if domains_list:
-                pill_classes = ["pill-amber","pill-green","pill-blue","pill-stone","pill-amber","pill-green","pill-blue","pill-stone"]
-                tags = "".join([f"<span class='cl-pill {pill_classes[i%len(pill_classes)]}'>{d_}</span>" for i,d_ in enumerate(domains_list)])
-                st.markdown(f"""
-                <div class='cl-card'>
-                    <div class='cl-info-label'>In-Scope Service Domains · {len(domains_list)} identified</div>
-                    <div style='margin-top:0.6rem'>{tags}</div>
-                </div>""", unsafe_allow_html=True)
+            # Build domain weights — we weight by keyword density in RFP
+            rfp_lower = st.session_state.rfp_text.lower()
+            tower_keywords = {
+                "Cybersecurity / SOC":           ["siem","soc","edr","threat","grc","pen test","vulnerability","firewall","ztna","zero trust","dlp","soar"],
+                "Infrastructure & DC Ops":       ["server","data centre","dc","compute","vmware","hci","storage","san","nas","backup","dr","network","sd-wan"],
+                "Application Managed Services":  ["sap","erp","ams","l1","l2","l3","application support","release","devops","change management","jira","servicenow ticket"],
+                "End User Computing":            ["helpdesk","desktop","endpoint","euc","m365","intune","vdi","citrix","dex","service desk","patch"],
+                "Digital Workplace":             ["sharepoint","teams","intranet","collaboration","purview","governance","power platform","onedrive","m365"],
+                "Cloud & Migration":             ["cloud","aws","azure","gcp","migration","lift-and-shift","cloud native","kubernetes","container","finops"],
+                "Data & Analytics":              ["data lake","analytics","bi","etl","data warehouse","mlops","machine learning","power bi","tableau","databricks"],
+                "Networking":                    ["wan","lan","bgp","routing","switching","mpls","sd-wan","network operations","noc","wireless"],
+            }
+            weights = {}
+            for tower, kws in tower_keywords.items():
+                count = sum(rfp_lower.count(kw) for kw in kws)
+                if count > 0:
+                    weights[tower] = count
 
-            # Key metrics
-            if key_metrics:
-                mtags = "".join([f"<span class='cl-pill pill-stone'>{m}</span>" for m in key_metrics])
-                st.markdown(f"""
-                <div class='cl-card'>
-                    <div class='cl-info-label'>Key SLA / KPI Metrics</div>
-                    <div style='margin-top:0.6rem'>{mtags}</div>
-                </div>""", unsafe_allow_html=True)
+            # Also include detected domains with a baseline weight if not already present
+            for dom in domains_list:
+                if dom not in weights:
+                    weights[dom] = 5  # baseline
 
-            # Domain details
-            if domain_details:
-                st.markdown("<div class='cl-card'><div class='cl-info-label'>Domain Details</div>", unsafe_allow_html=True)
-                for dom, detail in domain_details.items():
+            if not weights:
+                weights = {d_: 10 for d_ in (domains_list or ["General IT Services"])}
+
+            labels = list(weights.keys())
+            values = list(weights.values())
+            total  = sum(values)
+            pcts   = [round(v/total*100, 1) for v in values]
+            colors = DOMAIN_COLORS[:len(labels)]
+
+            fig = go.Figure(go.Pie(
+                labels=labels,
+                values=values,
+                hole=0.52,
+                marker=dict(colors=colors, line=dict(color='#f9f8f5', width=2)),
+                textinfo='percent',
+                textfont=dict(size=12, family='DM Sans'),
+                hovertemplate='<b>%{label}</b><br>Share: %{percent}<extra></extra>',
+                sort=True,
+                direction='clockwise',
+            ))
+            fig.update_layout(
+                showlegend=True,
+                legend=dict(
+                    orientation="v", x=1.02, y=0.5,
+                    font=dict(size=11, family='DM Sans', color='#44403a'),
+                    bgcolor='rgba(0,0,0,0)',
+                    traceorder='normal',
+                ),
+                margin=dict(t=10, b=10, l=10, r=10),
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                annotations=[dict(
+                    text=f"<b>{rfp_type_val}</b>",
+                    x=0.5, y=0.5, showarrow=False,
+                    font=dict(size=13, family='Instrument Serif', color='#18170f'),
+                    xanchor='center', yanchor='middle',
+                )],
+                height=360,
+            )
+
+            pie_col, info_col = st.columns([3,2], gap="large")
+            with pie_col:
+                st.markdown("<div class='cl-label'>Scope Distribution</div>", unsafe_allow_html=True)
+                st.plotly_chart(fig, use_container_width=True)
+            with info_col:
+                st.markdown("<div class='cl-label'>Domain Breakdown</div>", unsafe_allow_html=True)
+                for i, (lbl, pct) in enumerate(zip(labels, pcts)):
+                    color = colors[i] if i < len(colors) else "#888"
+                    detail = domain_details.get(lbl, "")
                     st.markdown(f"""
-                    <div style='margin-top:0.8rem;padding-top:0.8rem;border-top:1px solid var(--border)'>
-                        <div style='font-size:0.82rem;font-weight:600;color:var(--text);margin-bottom:0.25rem'>{dom}</div>
-                        <div style='font-size:0.8rem;color:var(--text2);line-height:1.65'>{detail}</div>
+                    <div style='display:flex;align-items:flex-start;gap:0.6rem;padding:0.45rem 0;border-bottom:1px solid var(--border)'>
+                        <div style='width:10px;height:10px;border-radius:50%;background:{color};margin-top:0.3rem;flex-shrink:0'></div>
+                        <div>
+                            <div style='font-size:0.8rem;font-weight:600;color:var(--text)'>{lbl} <span style="color:var(--accent);font-size:0.75rem">{pct}%</span></div>
+                            {f'<div style="font-size:0.75rem;color:var(--text3);line-height:1.5;margin-top:0.1rem">{detail[:100]}</div>' if detail else ''}
+                        </div>
                     </div>""", unsafe_allow_html=True)
-                st.markdown("</div>", unsafe_allow_html=True)
 
-            # Out-of-scope callout
+            # Key metrics + service model
+            st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+            mc1, mc2 = st.columns(2, gap="small")
+            with mc1:
+                st.markdown(f"<div class='cl-info'><div class='cl-info-label'>Service Model</div><strong>{service_model}</strong></div>", unsafe_allow_html=True)
+            with mc2:
+                if key_metrics:
+                    metrics_str = "  ·  ".join(key_metrics)
+                    st.markdown(f"<div class='cl-info'><div class='cl-info-label'>Key SLA / KPI Metrics</div>{metrics_str}</div>", unsafe_allow_html=True)
+
+            # Out-of-scope towers
             all_towers = [
-                ("Cybersecurity / SOC",              ["cybersecurity","siem","soc","edr","threat","zero trust","grc"]),
-                ("Infrastructure / DC Operations",   ["infrastructure","data centre","dc ops","compute","storage","cloud migration"]),
-                ("Application Managed Services",     ["application","ams","sap","erp","l1","l2","l3","release","devops"]),
-                ("End User Computing / Helpdesk",    ["end user","helpdesk","desktop","euc","m365","device management","vdi"]),
-                ("Digital Workplace",                ["digital workplace","teams","sharepoint","intranet","collaboration","purview"]),
-                ("Data & Analytics",                 ["data platform","analytics","bi","etl","data warehouse","mlops"]),
+                ("Cybersecurity / SOC",          ["cybersecurity","siem","soc","edr","threat","zero trust","grc"]),
+                ("Infrastructure & DC Ops",      ["infrastructure","data centre","dc ops","compute","storage","cloud migration","vmware"]),
+                ("Application Managed Services", ["application","ams","sap","erp","l1","l2","l3","release","devops"]),
+                ("End User Computing",           ["end user","helpdesk","desktop","euc","m365","device management","vdi"]),
+                ("Digital Workplace",            ["digital workplace","teams","sharepoint","intranet","collaboration","purview"]),
+                ("Data & Analytics",             ["data platform","analytics","bi","etl","data warehouse","mlops"]),
             ]
             domain_str = " ".join(domains_list).lower() + " " + rfp_type_val.lower()
             oos = [name for name, kws in all_towers if not any(kw in domain_str for kw in kws)]
-
             if oos:
                 oos_pills = "".join([f"<span class='cl-pill pill-red'>{t}</span>" for t in oos])
                 st.markdown(f"""
                 <div class='cl-oos'>
-                    <div class='cl-oos-title'>⊘ Out of Scope Service Towers</div>
-                    <div class='cl-oos-body' style='margin-bottom:0.6rem'>
-                        The following service areas were <strong>not identified</strong> in this RFP.
-                        These should be explicitly excluded from your proposal or marked as Not in Scope
-                        in your solution summary.
-                    </div>
-                    {oos_pills}
+                    <div class='cl-oos-title'>⊘ Out of Scope</div>
+                    <div class='cl-oos-body'>Not identified in this RFP — exclude from proposal scope or mark explicitly as Not in Scope.</div>
+                    <div style='margin-top:0.4rem'>{oos_pills}</div>
                 </div>""", unsafe_allow_html=True)
 
             if reasoning:
-                st.markdown(f"<div class='cl-info'><div class='cl-info-label'>Classification Reasoning</div><div>{reasoning}</div></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='cl-info' style='margin-top:0.5rem'><div class='cl-info-label'>Classification Notes</div>{reasoning}</div>", unsafe_allow_html=True)
 
             if st.button("↺ Reclassify", key="btn_reclassify"):
                 st.session_state.domains = None
                 st.rerun()
 
-    # ── Visuals tab ───────────────────────────────────────────────────────────
+    # ── Tab 8: Visuals ────────────────────────────────────────────────────────
     with tab8:
-        st.markdown("<div style='height:0.3rem'></div>", unsafe_allow_html=True)
+        tab_header("Visual Intelligence")
         cov_label = "Threat Coverage Matrix" if (rfp_t and "cyber" in rfp_t.lower()) else "Service Coverage Matrix"
-        st.markdown(f"<div class='cl-section-title'>Visual Intelligence{rfp_type_tag()}</div>", unsafe_allow_html=True)
-        st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
-
         if not VISUALS_AVAILABLE:
             st.warning("Visuals require: pip install plotly")
         else:
-            if not get_rfp_type():
-                classify_nudge()
-            vcol1, vcol2 = st.columns(2, gap="medium")
-            with vcol1:
+            if not get_rfp_type(): classify_nudge()
+            vc1, vc2 = st.columns(2, gap="medium")
+            with vc1:
                 if st.button("Generate CMO", key="btn_cmo"):
-                    with st.spinner("Analysing current environment..."):
-                        st.session_state.vis_cmo = extract_cmo_data(st.session_state.rfp_text)
-                        st.rerun()
+                    with st.spinner("Analysing current environment…"):
+                        st.session_state.vis_cmo = extract_cmo_data(st.session_state.rfp_text); st.rerun()
                 if st.button("Generate FMO", key="btn_fmo"):
                     if not st.session_state.solution_rec:
-                        st.warning("Run Solution Recommendation (Tab 3) first — FMO is built from the proposed solution.")
+                        st.warning("Run Solution Recommendation first — FMO is built from the proposed solution.")
                     else:
-                        with st.spinner("Building future architecture..."):
-                            st.session_state.vis_fmo = extract_fmo_data(st.session_state.solution_rec)
-                            st.rerun()
+                        with st.spinner("Building future architecture…"):
+                            st.session_state.vis_fmo = extract_fmo_data(st.session_state.solution_rec); st.rerun()
                 if st.button(cov_label, key="btn_threat"):
-                    with st.spinner("Mapping coverage..."):
-                        st.session_state.vis_threat = extract_threat_coverage(st.session_state.rfp_text)
-                        st.rerun()
-            with vcol2:
+                    with st.spinner("Mapping coverage…"):
+                        st.session_state.vis_threat = extract_threat_coverage(st.session_state.rfp_text); st.rerun()
+            with vc2:
                 if st.button("Requirements Traceability", key="btn_trace"):
-                    with st.spinner("Building traceability matrix..."):
-                        st.session_state.vis_traceability = extract_requirements_traceability(st.session_state.rfp_text)
-                        st.rerun()
+                    with st.spinner("Building RTM…"):
+                        st.session_state.vis_traceability = extract_requirements_traceability(st.session_state.rfp_text); st.rerun()
                 if st.button("Vendor Positioning Map", key="btn_vendor"):
-                    with st.spinner("Analysing vendor landscape..."):
-                        st.session_state.vis_vendor = extract_vendor_positioning(st.session_state.rfp_text)
+                    with st.spinner("Analysing vendor landscape…"):
+                        st.session_state.vis_vendor = extract_vendor_positioning(st.session_state.rfp_text); st.rerun()
+                if any([st.session_state.vis_cmo, st.session_state.vis_fmo, st.session_state.vis_threat, st.session_state.vis_traceability, st.session_state.vis_vendor]):
+                    if st.button("↺ Clear", key="btn_clrvis"):
+                        for vk in ["vis_cmo","vis_fmo","vis_threat","vis_traceability","vis_vendor"]: st.session_state[vk] = None
                         st.rerun()
-                if any([st.session_state.vis_cmo,st.session_state.vis_fmo,st.session_state.vis_threat,
-                        st.session_state.vis_traceability,st.session_state.vis_vendor]):
-                    if st.button("↺ Clear Visuals", key="btn_clrvis"):
-                        for vk in ["vis_cmo","vis_fmo","vis_threat","vis_traceability","vis_vendor"]:
-                            st.session_state[vk] = None
-                        st.rerun()
-
-            for vis_key, vis_label, render_fn in [
-                ("vis_cmo",          "Current Mode of Operations",  render_cmo),
-                ("vis_fmo",          "Future Mode of Operations",   render_fmo),
-                ("vis_threat",       cov_label,                     render_threat_coverage),
-                ("vis_traceability", "Requirements Traceability",   render_requirements_traceability),
-                ("vis_vendor",       "Vendor Positioning Map",      render_vendor_positioning),
+            for vis_key, vis_label, rfn in [
+                ("vis_cmo","Current Mode of Operations",render_cmo),
+                ("vis_fmo","Future Mode of Operations",render_fmo),
+                ("vis_threat",cov_label,render_threat_coverage),
+                ("vis_traceability","Requirements Traceability",render_requirements_traceability),
+                ("vis_vendor","Vendor Positioning Map",render_vendor_positioning),
             ]:
                 if st.session_state[vis_key]:
-                    st.markdown(f"<div class='divider'></div><div class='cl-label'>{vis_label}</div>", unsafe_allow_html=True)
-                    st.plotly_chart(render_fn(st.session_state[vis_key]), use_container_width=True)
+                    st.markdown(f"<div class='cl-label' style='margin-top:1rem'>{vis_label}</div>", unsafe_allow_html=True)
+                    st.plotly_chart(rfn(st.session_state[vis_key]), use_container_width=True)
 
-    # ── Chat tab ──────────────────────────────────────────────────────────────
+    # ── Tab 9: Chat ───────────────────────────────────────────────────────────
     with tab9:
-        st.markdown("<div style='height:0.3rem'></div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='cl-section-title'>Chat with your RFP{rfp_type_tag()}</div>", unsafe_allow_html=True)
-        st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
-
+        tab_header("Chat with RFP")
         for i in range(0, len(st.session_state.chat_history), 2):
             if i < len(st.session_state.chat_history):
                 st.markdown(f"<div class='chat-user'><div class='chat-who u'>You</div>{st.session_state.chat_history[i]}</div>", unsafe_allow_html=True)
             if i+1 < len(st.session_state.chat_history):
                 st.markdown(f"<div class='chat-ai'><div class='chat-who a'>Clarivo</div>{st.session_state.chat_history[i+1]}</div>", unsafe_allow_html=True)
-
         if not st.session_state.chat_history:
             st.markdown("<div class='cl-label'>Suggested questions</div>", unsafe_allow_html=True)
-            suggs = get_chat_suggestions()
-            c1, c2 = st.columns(2)
+            rfp_t2 = get_rfp_type() or ""
+            base_suggs = ["What is the contract value and duration?","What are the mandatory requirements?",
+                          "What compliance frameworks are specified?","What is the implementation timeline?"]
+            domain_suggs = {
+                "Cybersecurity": ["What SOC model is required?","Which security tools are specified?"],
+                "Infrastructure Services": ["What are the uptime SLAs?","Is cloud migration in scope?"],
+                "Application Managed Services": ["What support tiers are required?","What are the P1 SLAs?"],
+                "End User Computing": ["What is the endpoint count?","Is VDI in scope?"],
+            }
+            suggs = (base_suggs[:3] + domain_suggs.get(rfp_t2, ["What support model is required?","What existing tools must be retained?"]))[:6]
+            sc1, sc2 = st.columns(2)
             for idx, sug in enumerate(suggs):
-                with (c1 if idx % 2 == 0 else c2):
+                with (sc1 if idx%2==0 else sc2):
                     if st.button(sug, key=f"sug_{idx}", use_container_width=True):
-                        with st.spinner("Analysing..."):
+                        with st.spinner("…"):
                             answer = chat_with_rfp(st.session_state.rfp_text, sug, st.session_state.chat_history)
-                            st.session_state.chat_history.extend([sug, answer])
-                            st.rerun()
-
-        st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+                            st.session_state.chat_history.extend([sug, answer]); st.rerun()
+        st.markdown("<div style='height:0.4rem'></div>", unsafe_allow_html=True)
         user_q = st.text_input("Ask anything about this RFP…", placeholder="e.g. What are the data residency requirements?", key="chat_input")
-        qc1, qc2 = st.columns([6, 1])
+        qc1, qc2 = st.columns([6,1])
         with qc2:
             if st.button("Send", key="btn_send", use_container_width=True) and user_q:
-                with st.spinner("Analysing..."):
+                with st.spinner("…"):
                     answer = chat_with_rfp(st.session_state.rfp_text, user_q, st.session_state.chat_history)
-                    st.session_state.chat_history.extend([user_q, answer])
-                    st.rerun()
+                    st.session_state.chat_history.extend([user_q, answer]); st.rerun()
         if st.session_state.chat_history:
             if st.button("Clear conversation", key="btn_clearchat"):
-                st.session_state.chat_history = []
-                st.rerun()
+                st.session_state.chat_history = []; st.rerun()
