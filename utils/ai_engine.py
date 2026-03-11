@@ -33,15 +33,15 @@ def call_llm(client, messages, max_tokens=1500, temperature=0.2):
             return response.choices[0].message.content
         except RateLimitError:
             if attempt < max_retries - 1:
-                # Exponential backoff: 15s, 30s, 60s, 120s + small jitter
-                wait = (15 * (2 ** attempt)) + random.uniform(0, 5)
+                # Exponential backoff: 5s, 10s, 20s, 40s + small jitter
+                wait = (5 * (2 ** attempt)) + random.uniform(0, 3)
                 time.sleep(wait)
                 continue
             raise
         except Exception as e:
             err = str(e).lower()
             if ("rate" in err or "429" in err or "quota" in err) and attempt < max_retries - 1:
-                wait = (15 * (2 ** attempt)) + random.uniform(0, 5)
+                wait = (5 * (2 ** attempt)) + random.uniform(0, 3)
                 time.sleep(wait)
                 continue
             raise
