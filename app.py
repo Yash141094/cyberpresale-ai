@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import html as _html
 from utils.document_processor import extract_text_from_file, extract_multiple_files
 from utils.ai_engine import (
     generate_customer_brief,
@@ -591,10 +592,12 @@ with st.sidebar:
         "Exec Summary": bool(st.session_state.exec_summary),
         "Domain Classification": isinstance(st.session_state.domains, dict),
     }
+    module_rows_html = ""
     for m, done in module_states.items():
         dot_col = "#ea7c2b" if done else "#3a3630"
-        st.markdown(f"<div style='display:flex;align-items:center;gap:0.5rem;padding:0.2rem 0'><div style='width:6px;height:6px;border-radius:50%;background:{dot_col};flex-shrink:0'></div><div style='font-size:0.75rem;color:{'#c8c0b4' if done else '#5a5248'}'>{m}</div></div>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+        txt_col = "#c8c0b4" if done else "#5a5248"
+        module_rows_html += f"<div style='display:flex;align-items:center;gap:0.5rem;padding:0.2rem 0'><div style='width:6px;height:6px;border-radius:50%;background:{dot_col};flex-shrink:0'></div><div style='font-size:0.75rem;color:{txt_col}'>{_html.escape(m)}</div></div>"
+    st.markdown(f"<div style='padding:0 0.9rem'>{module_rows_html}</div>", unsafe_allow_html=True)
 
     # Document info + reset
     if st.session_state.rfp_text:
@@ -607,16 +610,15 @@ with st.sidebar:
             <div style='font-size:0.68rem;color:#5a5248;margin-top:0.15rem'>{len(st.session_state.rfp_text.split()):,} words</div>
         </div>
         """, unsafe_allow_html=True)
-        st.markdown("<div style='padding:0.6rem 0.9rem 0'>", unsafe_allow_html=True)
-        if st.button("↺ New Document", use_container_width=True):
-            for key in ["rfp_text","file_name","customer_brief","pain_analysis","solution_rec",
-                        "competitive","product_map","exec_summary","domains","vis_cmo","vis_fmo",
-                        "vis_threat","vis_traceability","vis_vendor","doc_summaries","rfp_context",
-                        "competitor_names","suggested_competitors"]:
-                st.session_state[key] = None
-            st.session_state.chat_history = []
-            st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
+        with st.container():
+            if st.button("↺ New Document", use_container_width=True):
+                for key in ["rfp_text","file_name","customer_brief","pain_analysis","solution_rec",
+                            "competitive","product_map","exec_summary","domains","vis_cmo","vis_fmo",
+                            "vis_threat","vis_traceability","vis_vendor","doc_summaries","rfp_context",
+                            "competitor_names","suggested_competitors"]:
+                    st.session_state[key] = None
+                st.session_state.chat_history = []
+                st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # UPLOAD SCREEN
@@ -836,12 +838,12 @@ else:
 
         # Show suggestions as clickable chips
         if st.session_state.suggested_competitors:
-            st.markdown("<div style='margin:0.4rem 0 0.6rem'>", unsafe_allow_html=True)
-            st.markdown("<div class='cl-label'>Suggested competitors — click to add:</div>", unsafe_allow_html=True)
-            chips_html = "".join([f"<span class='comp-chip'>{c}</span>" for c in st.session_state.suggested_competitors])
-            st.markdown(f"<div style='margin-top:0.3rem'>{chips_html}</div>", unsafe_allow_html=True)
-            st.markdown(f"<div style='font-size:0.73rem;color:var(--text3);margin-top:0.3rem'>Copy any names above into the input field, then click Analyse.</div>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+            chips_html = "".join([f"<span class='comp-chip'>{_html.escape(c)}</span>" for c in st.session_state.suggested_competitors])
+            st.markdown(f"""<div style='margin:0.4rem 0 0.6rem'>
+                <div class='cl-label'>Suggested competitors — click to add:</div>
+                <div style='margin-top:0.3rem'>{chips_html}</div>
+                <div style='font-size:0.73rem;color:var(--text3);margin-top:0.3rem'>Copy any names above into the input field, then click Analyse.</div>
+            </div>""", unsafe_allow_html=True)
 
         st.markdown("<div style='height:0.3rem'></div>", unsafe_allow_html=True)
 
@@ -960,13 +962,16 @@ else:
                 st.markdown("<div class='cl-label'>Domain Breakdown</div>", unsafe_allow_html=True)
                 for i, (lbl, pct) in enumerate(zip(labels, pcts)):
                     color = colors[i] if i < len(colors) else "#888"
-                    detail = domain_details.get(lbl, "")
+                    detail = domain_details.get(lbl, "") or ""
+                    detail_safe = _html.escape(str(detail))[:120]
+                    detail_html = f'<div style="font-size:0.75rem;color:var(--text3);line-height:1.5;margin-top:0.1rem">{detail_safe}</div>' if detail_safe else ""
+                    lbl_safe = _html.escape(str(lbl))
                     st.markdown(f"""
                     <div style='display:flex;align-items:flex-start;gap:0.6rem;padding:0.45rem 0;border-bottom:1px solid var(--border)'>
                         <div style='width:10px;height:10px;border-radius:50%;background:{color};margin-top:0.3rem;flex-shrink:0'></div>
                         <div>
-                            <div style='font-size:0.8rem;font-weight:600;color:var(--text)'>{lbl} <span style="color:var(--accent);font-size:0.75rem">{pct}%</span></div>
-                            {f'<div style="font-size:0.75rem;color:var(--text3);line-height:1.5;margin-top:0.1rem">{detail[:100]}</div>' if detail else ''}
+                            <div style='font-size:0.8rem;font-weight:600;color:var(--text)'>{lbl_safe} <span style="color:var(--accent);font-size:0.75rem">{pct}%</span></div>
+                            {detail_html}
                         </div>
                     </div>""", unsafe_allow_html=True)
 
