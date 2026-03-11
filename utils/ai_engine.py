@@ -1,7 +1,8 @@
 import os
 import json
 import time
-from openai import OpenAI
+import random
+from openai import OpenAI, RateLimitError
 
 def get_client():
     api_key = os.environ.get("GROQ_API_KEY")
@@ -19,9 +20,8 @@ def truncate_text(text, max_chars=12000):
 
 
 def call_llm(client, messages, max_tokens=1500, temperature=0.2):
-    """Central LLM caller with automatic retry on rate limit."""
-    max_retries = 4
-    wait_times  = [10, 20, 40, 60]  # seconds between retries
+    """Central LLM caller with exponential backoff on rate limit."""
+    max_retries = 5
     for attempt in range(max_retries):
         try:
             response = client.chat.completions.create(
@@ -31,11 +31,18 @@ def call_llm(client, messages, max_tokens=1500, temperature=0.2):
                 temperature=temperature,
             )
             return response.choices[0].message.content
+        except RateLimitError:
+            if attempt < max_retries - 1:
+                # Exponential backoff: 15s, 30s, 60s, 120s + small jitter
+                wait = (15 * (2 ** attempt)) + random.uniform(0, 5)
+                time.sleep(wait)
+                continue
+            raise
         except Exception as e:
             err = str(e).lower()
-            is_rate_limit = "rate" in err or "429" in err or "limit" in err or "quota" in err
-            if is_rate_limit and attempt < max_retries - 1:
-                time.sleep(wait_times[attempt])
+            if ("rate" in err or "429" in err or "quota" in err) and attempt < max_retries - 1:
+                wait = (15 * (2 ** attempt)) + random.uniform(0, 5)
+                time.sleep(wait)
                 continue
             raise
 
@@ -272,23 +279,23 @@ def generate_competitive_landscape(rfp_text):
 
     sig_block = f"""
 CONFIRMED RFP SIGNALS (base your entire analysis on these - do not invent):
-- Organisation: {signals.get('org_name','Unknown')}
-- Industry: {signals.get('industry','Unknown')}
-- Geography: {signals.get('geography','Unknown')}
-- Scale: {signals.get('scale','Unknown')}
+- Organisation: {signals.get('org_name') or 'Unknown'}
+- Industry: {signals.get('industry') or 'Unknown'}
+- Geography: {signals.get('geography') or 'Unknown'}
+- Scale: {signals.get('scale') or 'Unknown'}
 - Compliance requirements: {', '.join(signals.get('compliance') or ['Not specified'])}
 - Existing tools (incumbents): {', '.join(signals.get('incumbent_tools') or ['None identified'])}
 - Vendors mentioned in RFP: {', '.join(signals.get('preferred_vendors') or ['None'])}
-- Budget signals: {signals.get('budget_signals','Not specified')}
+- Budget signals: {signals.get('budget_signals') or 'Not specified'}
 - Key pain points: {', '.join(signals.get('key_pain_points') or ['Not specified'])}
 - Evaluation criteria: {', '.join(signals.get('evaluation_criteria') or ['Not specified'])}
-- Deal type: {signals.get('deal_type','Unknown')}
+- Deal type: {signals.get('deal_type') or 'Unknown'}
 - Decision makers: {', '.join(signals.get('decision_maker_signals') or ['Not specified'])}
 """
 
     rfp_meta = detect_rfp_type(rfp_text)
-    rfp_type = rfp_meta.get("rfp_type", "IT Services")
-    persona  = rfp_meta.get("consultant_persona", "Senior Solutions Architect")
+    rfp_type = rfp_meta.get("rfp_type", "IT Services") or "IT Services"
+    persona  = rfp_meta.get("consultant_persona", "Senior Solutions Architect") or "Senior Solutions Architect"
     prompt = f"""You are a competitive intelligence expert in {rfp_type} with deep knowledge of how enterprise deals are won and lost. You have just read an RFP in detail.
 
 {sig_block}
@@ -296,7 +303,7 @@ CONFIRMED RFP SIGNALS (base your entire analysis on these - do not invent):
 INSTRUCTIONS - every point must be anchored to the RFP signals above:
 
 ## WHO IS LIKELY BIDDING
-Based on the industry ({signals.get('industry')}), geography ({signals.get('geography')}), compliance requirements, and scale - name the specific vendors most likely bidding on this deal and WHY each one fits this specific opportunity. Do not list generic vendors - derive from the signals.
+Based on the industry ({signals.get('industry') or 'Unknown'}), geography ({signals.get('geography') or 'Unknown'}), compliance requirements, and scale - name the specific vendors most likely bidding on this deal and WHY each one fits this specific opportunity. Do not list generic vendors - derive from the signals.
 
 ## COMPETITIVE THREAT ASSESSMENT
 For each likely bidder, provide a table row:
@@ -425,7 +432,8 @@ def classify_domains(rfp_text):
     """Domain classification - works for any RFP type"""
     client = get_client()
     rfp_meta = detect_rfp_type(rfp_text)
-    rfp_type = rfp_meta.get("rfp_type", "IT Services")
+    rfp_type = rfp_meta.get("rfp_type", "IT Services") or "IT Services"
+    time.sleep(2)  # brief pause between consecutive API calls to avoid rate limit
     prompt = f"""Analyze this RFP and identify all service domains and sub-towers required.
 RFP Type detected: {rfp_type}
 
@@ -539,17 +547,17 @@ def generate_competitive_with_competitors(rfp_text, competitor_names):
     client   = get_client()
     signals  = extract_rfp_signals(rfp_text)
     rfp_meta = detect_rfp_type(rfp_text)
-    rfp_type = rfp_meta.get("rfp_type", "IT Services")
+    rfp_type = rfp_meta.get("rfp_type", "IT Services") or "IT Services"
 
-    org        = signals.get("org_name", "Unknown")
-    industry   = signals.get("industry", "Unknown")
-    geo        = signals.get("geography", "Unknown")
-    scale      = signals.get("scale", "Unknown")
-    compliance = ", ".join(signals.get("compliance") or ["Not specified"])
-    tools      = ", ".join(signals.get("incumbent_tools") or ["None identified"])
-    pains      = ", ".join(signals.get("key_pain_points") or ["Not specified"])
+    org        = str(signals.get("org_name")      or "Unknown")
+    industry   = str(signals.get("industry")       or "Unknown")
+    geo        = str(signals.get("geography")      or "Unknown")
+    scale      = str(signals.get("scale")          or "Unknown")
+    compliance = ", ".join(signals.get("compliance")          or ["Not specified"])
+    tools      = ", ".join(signals.get("incumbent_tools")     or ["None identified"])
+    pains      = ", ".join(signals.get("key_pain_points")     or ["Not specified"])
     criteria   = ", ".join(signals.get("evaluation_criteria") or ["Not specified"])
-    first_comp = competitor_names.split(",")[0].strip()
+    first_comp = str(competitor_names).split(",")[0].strip() or "the leading competitor"
 
     prompt = (
         "You are a competitive intelligence expert for a " + rfp_type + " deal.\n"
