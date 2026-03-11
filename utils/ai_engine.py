@@ -40,256 +40,374 @@ def call_llm(client, messages, max_tokens=1500, temperature=0.2):
             raise
 
 
+def extract_rfp_signals(rfp_text):
+    """Extract key RFP signals to ground all subsequent analysis in real document data."""
+    client = get_client()
+    prompt = """Read this RFP and extract key signals. Respond ONLY with valid JSON:
+{
+  "org_name": "exact org name from RFP",
+  "industry": "specific industry vertical",
+  "geography": "country/region of operations",
+  "scale": "number of users/endpoints/locations if mentioned",
+  "compliance": ["list of specific compliance frameworks mentioned e.g. ISO 27001, GDPR, RBI, PCI-DSS, NIST"],
+  "incumbent_tools": ["any existing tools mentioned e.g. Splunk, Active Directory, Office 365"],
+  "budget_signals": "any budget range, tier, or cost sensitivity signals mentioned",
+  "preferred_vendors": ["any vendor names explicitly mentioned or implied"],
+  "blacklisted_vendors": ["any vendors excluded or discouraged"],
+  "key_pain_points": ["top 3-5 specific problems stated or implied in the RFP"],
+  "evaluation_criteria": ["specific evaluation criteria or weightings if mentioned"],
+  "timeline": "project timeline or go-live dates if mentioned",
+  "deal_type": "net new / renewal / expansion / migration",
+  "decision_maker_signals": ["titles or roles of decision makers mentioned"]
+}
+If a field cannot be determined from the RFP, use null. Be specific — extract actual text signals, not generic guesses.
+
+RFP:
+""" + rfp_text[:8000]
+
+    raw = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1000, temperature=0.1)
+    raw = raw.strip()
+    if "```json" in raw: raw = raw.split("```json")[1].split("```")[0].strip()
+    elif "```" in raw: raw = raw.split("```")[1].split("```")[0].strip()
+    start, end = raw.find("{"), raw.rfind("}") + 1
+    if start != -1 and end > start: raw = raw[start:end]
+    try:
+        return json.loads(raw)
+    except:
+        return {}
+
+
+
+
+def detect_rfp_type(rfp_text):
+    """Detect the type/domain of RFP to drive domain-aware analysis."""
+    client = get_client()
+    prompt = """Read this RFP and classify it. Respond ONLY with valid JSON:
+{
+  "rfp_type": "one of: Cybersecurity | Infrastructure Services | Application Managed Services | End User Computing | Digital Workplace | Data & Analytics | Multi-Tower | Other",
+  "primary_domains": ["list of 3-6 primary service domains in this RFP e.g. SOC Operations, Cloud Migration, Helpdesk L1/L2, SAP AMS, Network Management"],
+  "technology_stack": ["key technologies, platforms, or tools mentioned"],
+  "service_model": "one of: Managed Service | Project-based | Hybrid | Staff Augmentation | Outsourcing",
+  "consultant_persona": "the type of expert who should analyse this — e.g. Senior Cybersecurity Architect | Infrastructure Solutions Architect | IT Service Delivery Manager | Application Services Lead",
+  "vendor_landscape": ["top 5-8 vendors relevant to this specific RFP type and domains"],
+  "key_metrics": ["the 2-4 most important SLA/KPI metrics for this type of RFP e.g. MTTR, P1 response time, uptime SLA, ticket resolution rate"]
+}
+
+Examples:
+- SOC + SIEM + EDR RFP → Cybersecurity, consultant_persona: Senior Cybersecurity Architect
+- DC migration + cloud + network RFP → Infrastructure Services, consultant_persona: Infrastructure Solutions Architect  
+- SAP support + L2/L3 AMS RFP → Application Managed Services, consultant_persona: Application Services Lead
+- Helpdesk + desktop + M365 RFP → End User Computing, consultant_persona: IT Service Delivery Manager
+- SOC + helpdesk + infra all in one → Multi-Tower, consultant_persona: IT Managed Services Director
+
+RFP:
+""" + rfp_text[:5000]
+
+    raw = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=600, temperature=0.1)
+    raw = raw.strip()
+    if "```json" in raw: raw = raw.split("```json")[1].split("```")[0].strip()
+    elif "```" in raw: raw = raw.split("```")[1].split("```")[0].strip()
+    s, e = raw.find("{"), raw.rfind("}") + 1
+    if s != -1 and e > s: raw = raw[s:e]
+    try:
+        return json.loads(raw)
+    except:
+        return {
+            "rfp_type": "Other",
+            "primary_domains": [],
+            "technology_stack": [],
+            "service_model": "Managed Service",
+            "consultant_persona": "Senior Solutions Architect",
+            "vendor_landscape": [],
+            "key_metrics": ["SLA adherence", "Response time", "Resolution rate"]
+        }
+
 def generate_customer_brief(rfp_text):
     """One-pager: who is the customer, context, why this RFP now"""
     client = get_client()
-    prompt = f"""You are a senior cybersecurity presales consultant preparing a customer intelligence brief before a major proposal.
+    rfp_meta = detect_rfp_type(rfp_text)
+    persona  = rfp_meta.get("consultant_persona", "Senior Solutions Architect")
+    domains  = ", ".join(rfp_meta.get("primary_domains", []))
+    prompt = f"""You are a {persona} preparing a customer intelligence brief before a major proposal.
 
-Analyze this RFP and produce a sharp, insightful ONE-PAGER that a presales consultant can read in 2 minutes before walking into a customer meeting.
+RFP Type: {rfp_meta.get("rfp_type","Unknown")}
+Primary Domains: {domains}
 
-Structure your response EXACTLY as follows:
+Analyze this RFP and produce a sharp ONE-PAGER a presales consultant can read in 2 minutes before walking into a customer meeting.
+
+Structure your response EXACTLY as:
 
 ## CUSTOMER SNAPSHOT
-Provide 4-5 sentences covering: who they are, industry vertical, size/scale, business model, market position. Make it specific — not generic industry description.
+4-5 sentences: who they are, industry, size/scale, business model, market position. Be specific.
 
-## BUSINESS CONTEXT & TRIGGERS
-Why is this RFP being released NOW? What business events, regulatory pressures, incidents, or strategic initiatives are likely driving this? Think like a detective — read between the lines of the RFP. What pain forced them to write this document?
+## WHY THIS RFP NOW
+2-3 sentences: business trigger. What event, pressure, or initiative is driving this procurement? What happens if they don't act?
 
-## ORGANIZATIONAL SCALE
-Summarize the environment in crisp bullet points: users, endpoints, locations, cloud platforms, applications, transaction volumes — whatever is mentioned. This is for quick reference.
+## WHAT THEY ARE ACTUALLY BUYING
+The real ask beneath the stated requirements. What outcome does the customer want — not just what they wrote in the scope.
 
-## KEY DECISION MAKERS (LIKELY)
-Based on the RFP content, who in the organization is likely involved in this decision? CISO, CTO, CFO, CRO, Board? What are their likely priorities and concerns?
+## KEY DECISION MAKERS & INFLUENCERS
+Who is evaluating this? Who signs? Who influences? Infer from job titles, evaluation criteria, and RFP language.
 
 ## STRATEGIC PRIORITIES
-What are the top 3 things this organization is trying to achieve with this investment? Not technical features — business outcomes.
+The 3-4 business priorities this RFP is trying to serve. Think beyond IT — cost reduction, regulatory pressure, M&A, digital transformation.
 
 ## RELATIONSHIP ENTRY POINTS
-What aspects of this RFP give a smart presales consultant the best opportunity to build rapport, demonstrate expertise, and differentiate from competition?
+Where is the best opportunity to build trust and differentiate before submission? What would make them remember us?
+
+## RED FLAGS & WATCH-OUTS
+What in this RFP suggests a difficult customer, a wired deal, or unrealistic expectations?
 
 RFP:
 {truncate_text(rfp_text)}
 
-Be specific, insightful, and sharp. Avoid generic statements. Every line should be directly derived from or intelligently inferred from the RFP content."""
+Every insight must be specific to this RFP. No generic statements."""
 
     return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1500, temperature=0.3)
 
 
+
 def generate_pain_analysis(rfp_text):
-    """Deep pain point and requirements analysis"""
+    """Deep pain point and requirements analysis — domain agnostic"""
     client = get_client()
-    prompt = f"""You are a world-class cybersecurity presales consultant with 20 years of experience winning enterprise deals. You have a gift for understanding what customers REALLY need — not just what they wrote in the RFP.
+    rfp_meta = detect_rfp_type(rfp_text)
+    persona  = rfp_meta.get("consultant_persona", "Senior Solutions Architect")
+    rfp_type = rfp_meta.get("rfp_type", "IT Services")
+    metrics  = ", ".join(rfp_meta.get("key_metrics", ["SLA adherence", "response time"]))
+    prompt = f"""You are a {persona} with deep experience winning {rfp_type} deals.
 
-Analyze this RFP and produce a deep pain point analysis structured as follows:
+Analyze this RFP and produce a deep pain point analysis. Go beyond what is written — understand what the customer truly needs.
 
-## SURFACE REQUIREMENTS vs UNDERLYING PAINS
-For each major requirement area, identify:
-- What they ASKED for (surface requirement)
-- What they ACTUALLY NEED (underlying business pain)
-- The RISK they are trying to mitigate
-- The COST of inaction (business impact if not solved)
+## RANKED PAIN POINTS
+List the top 5-7 pain points in order of business impact. For each:
+- Pain: what is the problem
+- Business impact: cost, risk, compliance, reputation
+- Evidence: quote or reference from the RFP that signals this pain
 
-## TOP 5 CRITICAL PAIN POINTS (RANKED)
-Rank the 5 most critical pain points this organization is experiencing. For each:
-1. Pain point name
-2. Evidence from RFP (quote or reference the specific requirement)
-3. Business impact if not addressed
-4. Urgency level (Critical/High/Medium)
+## SURFACE REQUIREMENTS vs REAL NEEDS
+What the RFP says vs what the customer actually needs. 3-5 examples where the stated requirement understates or misrepresents the underlying business need.
 
-## COMPLIANCE & REGULATORY PRESSURE
-What regulatory obligations are driving this? What are the consequences of non-compliance? Be specific about penalties, deadlines, and audit implications.
+## COMPLIANCE & REGULATORY PRESSURES
+Specific regulations, frameworks, or audit findings driving this RFP. What are the consequences of non-compliance?
 
-## TECHNICAL DEBT & LEGACY CHALLENGES
-Based on the requirements, what legacy technology problems are they likely trying to solve? What does their current environment tell you about their technical debt?
+## TECHNICAL DEBT & LEGACY CONSTRAINTS
+What existing systems, contracts, or technical limitations will constrain the solution?
 
-## QUICK WINS vs LONG-TERM TRANSFORMATION
-Which requirements represent immediate tactical fixes vs strategic transformation? This helps structure the proposal and implementation approach.
+## OPERATIONAL PAIN
+Day-to-day problems the current team faces. Staffing gaps, tool sprawl, manual processes, escalation failures.
 
-## RED FLAGS & RISKS FOR VENDOR
-What requirements could be problematic? Unrealistic timelines? Overly complex integrations? Budget misalignment? Flag these honestly so the presales team is prepared.
+## KEY SLA/KPI REQUIREMENTS
+The specific measurable commitments the customer expects: {metrics}. Map each to its business justification.
+
+## COMMERCIAL SENSITIVITIES
+Budget signals, cost pressure, make-vs-buy tensions, incumbent disadvantage or advantage.
+
+## WHAT WILL MAKE OR BREAK THE PROPOSAL
+The 2-3 requirements where winning or losing this deal will be decided.
 
 RFP:
-{truncate_text(rfp_text)}
-
-Be analytical, honest, and commercially aware. A great presales consultant uses this analysis to build a proposal that speaks directly to pain — not just features."""
+{truncate_text(rfp_text)}"""
 
     return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=2000, temperature=0.2)
 
 
+
 def generate_solution_recommendation(rfp_text):
-    """What should we propose and why — presales recommendation"""
+    """Strategic solution recommendation — domain agnostic"""
     client = get_client()
-    prompt = f"""You are a Principal Solution Architect and presales strategist. Your job is to tell the sales team exactly what solution to propose and why — with full commercial and technical rationale.
+    rfp_meta = detect_rfp_type(rfp_text)
+    persona  = rfp_meta.get("consultant_persona", "Senior Solutions Architect")
+    rfp_type = rfp_meta.get("rfp_type", "IT Services")
+    domains  = ", ".join(rfp_meta.get("primary_domains", []))
+    tech     = ", ".join(rfp_meta.get("technology_stack", []))
+    prompt = f"""You are a {persona} designing the winning solution for a {rfp_type} RFP.
 
-Based on this RFP, produce a Solution Recommendation Report:
+RFP Domains: {domains}
+Technology Stack: {tech}
 
-## RECOMMENDED SOLUTION ARCHITECTURE
-Describe the proposed solution at a high level. What is the overall architecture? Platform approach vs best-of-breed? On-premise, cloud, or hybrid? Why is this the right architectural approach for THIS customer?
+Produce a structured solution recommendation a presales team can use to build a winning proposal.
 
-## CORE SOLUTION COMPONENTS (What to propose for each domain)
-For each domain required in the RFP:
-- Recommended solution component
-- Specific reason it fits THIS customer's requirements
-- Key capabilities to highlight
-- Implementation consideration
+## SOLUTION PHILOSOPHY
+In 3-5 sentences: what is the core strategic approach? Why this over alternatives? What is the headline value proposition?
 
-## SOLUTION DIFFERENTIATORS
-What makes our proposed solution uniquely suited for this customer? What 3-5 points should the proposal hammer home repeatedly?
+## RECOMMENDED ARCHITECTURE / OPERATING MODEL
+The proposed solution structure. How does it work? What are the key components? How do they integrate? Use specific product names and service models where relevant.
 
-## PROPOSED IMPLEMENTATION PHASING
-How should the solution be delivered? Propose a phased approach that:
-- Delivers quick wins in Phase 1 to build confidence
-- Addresses the most critical requirements first
-- Manages risk appropriately
-- Aligns with their stated timeline
+## IMPLEMENTATION APPROACH & PHASING
+Phase 1 / Phase 2 / Phase 3 with timelines, key milestones, and what the customer gets at each stage. Be realistic.
+
+## TEAM & GOVERNANCE MODEL
+Who delivers this? What roles, where located, what governance structure? How does the customer interact with the delivery team day-to-day?
+
+## SLA & SERVICE LEVELS
+Proposed SLAs for each major service tower. How do they meet or exceed the RFP requirements?
+
+## POC / PILOT STRATEGY
+What should the POC demonstrate? How long? What success criteria? What does a winning POC look like for THIS customer?
 
 ## COMMERCIAL STRATEGY
-- What pricing model works best for this customer?
-- Where is there room to be competitive?
-- What can be bundled to increase deal value?
-- What managed services opportunities exist?
+Pricing model, deal structure, how to present TCO. What is the anchor message on value?
 
-## PROPOSAL MESSAGING FRAMEWORK
-The 5 key messages that should run through the entire proposal:
-1. Message about understanding their business
-2. Message about technical fit
-3. Message about risk reduction
-4. Message about ROI/value
-5. Message about partnership/long-term
-
-## POC STRATEGY
-What should be demonstrated in the POC to maximize win probability? What KPIs should be measured? What use cases show the solution at its best?
+## KEY RISKS & MITIGATIONS
+Top 3-4 delivery risks for this engagement and how we mitigate them in the proposal.
 
 RFP:
 {truncate_text(rfp_text)}
 
-This is a strategic recommendation document. Be opinionated, specific, and commercially smart."""
+Be specific and commercially grounded. Every recommendation must be defensible against the RFP."""
 
-    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=2000, temperature=0.3)
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=2000, temperature=0.2)
+
 
 
 def generate_competitive_landscape(rfp_text):
-    """Who else is bidding and how to win"""
-    client = get_client()
-    prompt = f"""You are a competitive intelligence expert in enterprise cybersecurity with deep knowledge of how deals are won and lost.
+    """RFP-grounded competitive intelligence — signals extracted first, then analysis."""
+    client  = get_client()
+    signals = extract_rfp_signals(rfp_text)
 
-Based on this RFP, produce a competitive landscape analysis:
+    sig_block = f"""
+CONFIRMED RFP SIGNALS (base your entire analysis on these — do not invent):
+- Organisation: {signals.get('org_name','Unknown')}
+- Industry: {signals.get('industry','Unknown')}
+- Geography: {signals.get('geography','Unknown')}
+- Scale: {signals.get('scale','Unknown')}
+- Compliance requirements: {', '.join(signals.get('compliance') or ['Not specified'])}
+- Existing tools (incumbents): {', '.join(signals.get('incumbent_tools') or ['None identified'])}
+- Vendors mentioned in RFP: {', '.join(signals.get('preferred_vendors') or ['None'])}
+- Budget signals: {signals.get('budget_signals','Not specified')}
+- Key pain points: {', '.join(signals.get('key_pain_points') or ['Not specified'])}
+- Evaluation criteria: {', '.join(signals.get('evaluation_criteria') or ['Not specified'])}
+- Deal type: {signals.get('deal_type','Unknown')}
+- Decision makers: {', '.join(signals.get('decision_maker_signals') or ['Not specified'])}
+"""
 
-## LIKELY COMPETITORS IN THIS DEAL
-Based on the requirements, scale, and industry — which vendors are most likely to bid? For each likely competitor:
-- Vendor name
-- Why they are a likely bidder
-- Their typical approach for deals like this
-- Their likely pricing strategy
+    rfp_meta = detect_rfp_type(rfp_text)
+    rfp_type = rfp_meta.get("rfp_type", "IT Services")
+    persona  = rfp_meta.get("consultant_persona", "Senior Solutions Architect")
+    prompt = f"""You are a competitive intelligence expert in {rfp_type} with deep knowledge of how enterprise deals are won and lost. You have just read an RFP in detail.
+
+{sig_block}
+
+INSTRUCTIONS — every point must be anchored to the RFP signals above:
+
+## WHO IS LIKELY BIDDING
+Based on the industry ({signals.get('industry')}), geography ({signals.get('geography')}), compliance requirements, and scale — name the specific vendors most likely bidding on this deal and WHY each one fits this specific opportunity. Do not list generic vendors — derive from the signals.
 
 ## COMPETITIVE THREAT ASSESSMENT
-| Vendor | Threat Level | Their Strongest Cards | Their Weaknesses |
-Provide this analysis for top 4-5 competitors.
+For each likely bidder, provide a table row:
+Vendor | Threat Level (High/Med/Low) | Their strongest card for THIS deal | Their weakness for THIS deal
+
+## INCUMBENT ADVANTAGE ANALYSIS
+Based on existing tools ({', '.join(signals.get('incumbent_tools') or ['unknown'])}) — which vendor has an existing relationship advantage? How do we counter or leverage this?
 
 ## WHERE WE WIN vs WHERE WE LOSE
-Against each major competitor:
-- Where our solution is clearly superior
-- Where they may outperform us
-- The specific requirements where the battle will be won or lost
-
-## CUSTOMER EVALUATION BIASES
-Based on the RFP language, evaluation criteria, and requirements — what does this tell us about the customer's existing vendor relationships? Any incumbents? Any obvious preferences?
+For this specific RFP's requirements — where does our solution clearly win? Where are we vulnerable? Be honest.
 
 ## COUNTER-STRATEGY
-For each major competitor, what is the counter-strategy?
-- What FUD (Fear, Uncertainty, Doubt) can we legitimately raise about their solution?
-- What proof points, case studies, or references should we lead with?
-- What TCO arguments work in our favor?
+For each top 2-3 competitors — specific counter-moves based on THIS deal's compliance needs, geography, and scale.
 
 ## WINNING CONDITIONS
-What 3-5 things must happen for us to win this deal? What are the absolute must-haves in our proposal and POC to beat the competition?
+What 3-5 things must happen to win THIS specific deal based on the evaluation criteria and decision maker signals?
 
-## LANDMINES TO AVOID
-What mistakes do vendors typically make in deals like this that cause them to lose? What should we NOT do?
+## LANDMINES
+What mistakes would cause us to lose this specific deal?
 
-RFP:
-{truncate_text(rfp_text)}
+RFP (for additional context):
+{truncate_text(rfp_text, 6000)}
 
-Be realistic, honest, and strategically sharp. The goal is to help the sales team go in with eyes wide open."""
+Be specific to this deal. Every insight must reference actual RFP signals. No generic competitive analysis."""
 
-    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=2000, temperature=0.3)
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=2500, temperature=0.2)
+
 
 
 def generate_product_mapping(rfp_text):
-    """Detailed vendor and product recommendations"""
-    client = get_client()
-    prompt = f"""You are a senior cybersecurity solution architect with commercial awareness. You know every major vendor platform deeply — their strengths, weaknesses, pricing models, and ideal use cases.
+    """RFP-grounded product mapping — signals extracted first, recommendations derived from actual requirements."""
+    client  = get_client()
+    signals = extract_rfp_signals(rfp_text)
 
-Analyze this RFP and produce a DETAILED product mapping for EACH domain:
+    sig_block = f"""
+CONFIRMED RFP SIGNALS:
+- Organisation: {signals.get('org_name','Unknown')} | Industry: {signals.get('industry','Unknown')} | Geography: {signals.get('geography','Unknown')}
+- Scale: {signals.get('scale','Unknown')}
+- Compliance: {', '.join(signals.get('compliance') or ['Not specified'])}
+- Existing tools: {', '.join(signals.get('incumbent_tools') or ['None'])}
+- Vendors mentioned: {', '.join(signals.get('preferred_vendors') or ['None'])}
+- Blacklisted vendors: {', '.join(signals.get('blacklisted_vendors') or ['None'])}
+- Key pain points: {', '.join(signals.get('key_pain_points') or ['Not specified'])}
+- Budget signals: {signals.get('budget_signals','Not specified')}
+"""
 
-For every cybersecurity domain required in this RFP, provide:
+    rfp_meta = detect_rfp_type(rfp_text)
+    rfp_type = rfp_meta.get("rfp_type", "IT Services")
+    persona  = rfp_meta.get("consultant_persona", "Senior Solutions Architect")
+    vendors  = rfp_meta.get("vendor_landscape", [])
+    prompt = f"""You are a {persona} specialising in {rfp_type} deals. You have read this RFP carefully.
 
-### [DOMAIN NAME]
-**Requirement Summary:** (2-3 sentences on what the customer specifically needs)
+{sig_block}
 
-**PRIMARY RECOMMENDATION: [Vendor - Specific Product]**
-- Why this fits: (3-4 specific reasons tied to THIS RFP's requirements)
-- Key capabilities addressing requirements: (bullet list)
-- Deployment model for this customer: (how it would be deployed)
-- Typical deal size for this scale: (rough pricing indication)
-- Reference customers in same industry: (if known)
+Produce a DETAILED product mapping for each domain the RFP specifically requires. Do NOT include domains not mentioned in the RFP.
 
-**ALTERNATIVE: [Vendor - Specific Product]**  
-- When to recommend this instead: (specific scenario)
-- Key differentiator vs primary: (what they do better)
-- Potential concern: (honest weakness)
+For each required domain, structure your response as:
 
-**INTEGRATION NOTE:** How does this solution integrate with other recommended components?
+### [EXACT DOMAIN NAME FROM RFP]
+**What this customer specifically needs:** (2-3 sentences referencing actual RFP requirements)
 
-Cover ALL of these domains if relevant to the RFP:
-- SIEM/SOC Platform
-- Endpoint Detection & Response (EDR/XDR)  
-- Zero Trust / Identity & Access Management
-- Cloud Security (CSPM/CWPP/CNAPP)
-- Network Security (NGFW/IDS/WAF)
-- Governance, Risk & Compliance (GRC)
-- Privileged Access Management (PAM)
-- Threat Intelligence
+**PRIMARY RECOMMENDATION: [Vendor - Specific Product Name]**
+- Why this fits THIS customer: (must reference industry, geography, compliance, existing tools)
+- Key capabilities matching their requirements: (specific to what the RFP asked for)
+- Integration with their existing environment: ({', '.join(signals.get('incumbent_tools') or ['existing stack'])})
+- Compliance coverage: (which of their specific compliance requirements this addresses)
 
-Vendors to reference: Palo Alto Networks (Cortex XSIAM, XDR, Prisma Cloud, NGFW), Microsoft (Sentinel, Defender XDR, Entra ID, Defender for Cloud, Purview), CrowdStrike (Falcon platform), SentinelOne (Singularity), Splunk (Enterprise Security), IBM QRadar, Okta (Identity Cloud), CyberArk (Privileged Access), BeyondTrust, Zscaler (ZIA/ZPA), Fortinet (FortiGate/FortiSIEM), Check Point, Tenable (Vulnerability Management), Rapid7, Wiz, Orca Security.
+**ALTERNATIVE: [Vendor - Specific Product]**
+- When to recommend instead: (specific scenario for THIS customer)
+- Trade-off vs primary: (honest comparison)
+
+**COMMERCIAL NOTE:** Licensing model, typical deal size for {signals.get('scale','this scale')}, and any relevant pricing signals.
+
+IMPORTANT: Only recommend vendors, tools, and platforms that genuinely fit this {rfp_type} RFP for {signals.get('industry','this industry')} in {signals.get('geography','this geography')}. Examples of relevant vendor landscapes by type: Infrastructure (VMware, HPE, Dell, Cisco, AWS, Azure, NetApp), AMS (SAP, Oracle, ServiceNow, JIRA, Infosys, TCS, Wipro, IBM), EUC (ServiceNow, SOTI, Ivanti, Nexthink, Microsoft, Citrix, VMware Workspace ONE), Cybersecurity (Palo Alto, Microsoft, CrowdStrike, SentinelOne, Splunk, IBM QRadar, Zscaler, CyberArk). Do NOT include vendors irrelevant to this RFP type. Every recommendation must be defensible.
 
 RFP:
-{truncate_text(rfp_text)}
+{truncate_text(rfp_text, 6000)}"""
 
-Be specific, opinionated, and commercially grounded. Every recommendation must be justified by actual RFP requirements."""
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=3000, temperature=0.15)
 
-    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=3000, temperature=0.2)
 
 
 def generate_executive_summary(rfp_text):
-    """Board-ready executive summary for proposal"""
+    """Board-ready executive summary — domain agnostic"""
     client = get_client()
-    prompt = f"""You are a Chief Security Strategist writing the executive summary for a winning proposal. This will be read by the CISO, CTO, CFO, and potentially the Board.
+    rfp_meta = detect_rfp_type(rfp_text)
+    rfp_type = rfp_meta.get("rfp_type", "IT Services")
+    domains  = ", ".join(rfp_meta.get("primary_domains", []))
+    prompt = f"""You are a Chief Solutions Strategist writing the executive summary for a winning proposal. This will be read by the CIO, CFO, and potentially the Board.
 
-Write a powerful, persuasive executive summary (500-600 words) structured as:
+RFP Type: {rfp_type} | Domains: {domains}
+
+Write a powerful executive summary (500-600 words):
 
 **[Opening — 2-3 sentences]**
-Acknowledge the organization by name (if mentioned), their strategic position, and the significance of this security investment decision. Show you understand their business — not just their IT.
+Acknowledge the organisation by name, their strategic position, and the significance of this investment. Show you understand their business.
 
-**The Security Imperative [1 paragraph]**
-Articulate the specific threats and challenges facing this organization in their industry context. Use industry statistics and threat landscape data relevant to their sector. Show urgency without fearmongering.
+**The Business Imperative [1 paragraph]**
+Articulate the specific challenges facing this organisation. Use industry context. Show urgency without fearmongering.
 
 **Our Understanding of Your Requirements [1 paragraph]**
-Demonstrate deep understanding of their specific requirements. Reference key aspects — scale, compliance obligations, integration needs. This paragraph says "we read your RFP carefully."
+Demonstrate deep understanding of their specific requirements. Reference scale, compliance, integration needs. This says "we read your RFP carefully."
 
 **Proposed Solution Approach [2 paragraphs]**
-Describe the solution philosophy and approach. Why platform over point solutions? How does the architecture address their specific environment? Speak in outcomes — "your SOC team will detect threats in under 5 minutes" not "our SIEM has ML-based correlation."
+Describe the solution philosophy and approach. Speak in outcomes — measurable improvements, not feature lists.
 
-**Business Value & Risk Reduction [1 paragraph]**
-Quantify the value. Breach cost reduction, compliance risk mitigation, operational efficiency gains, faster incident response. Use numbers where possible.
+**Business Value [1 paragraph]**
+Quantify the value. Cost reduction, risk mitigation, efficiency gains, faster delivery. Use numbers where possible.
 
-**Why [Us/This Solution] [1 paragraph]**
-The unique value proposition. What makes this proposal the right choice. References to industry experience, similar deployments, local presence, support model.
+**Why Us [1 paragraph]**
+The unique value proposition. Industry experience, similar deployments, local presence, support model.
 
 **Call to Action [2-3 sentences]**
-Confident close. Next steps. Expression of partnership commitment.
+Confident close. Next steps. Partnership commitment.
 
-TONE: Confident, authoritative, business-first. No acronyms without explanation. Write as if this document alone could win the deal.
+TONE: Confident, business-first. No acronyms without explanation. Write as if this document alone could win the deal.
 
 RFP:
 {truncate_text(rfp_text)}"""
@@ -297,75 +415,80 @@ RFP:
     return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1200, temperature=0.3)
 
 
-def classify_domains(rfp_text):
-    """Domain classification"""
-    client = get_client()
-    prompt = f"""Analyze this RFP and identify cybersecurity domains required.
 
-Respond with ONLY valid JSON:
+def classify_domains(rfp_text):
+    """Domain classification — works for any RFP type"""
+    client = get_client()
+    rfp_meta = detect_rfp_type(rfp_text)
+    rfp_type = rfp_meta.get("rfp_type", "IT Services")
+    prompt = f"""Analyze this RFP and identify all service domains and sub-towers required.
+RFP Type detected: {rfp_type}
+
+Respond ONLY with valid JSON:
 {{
+  "rfp_type": "{rfp_type}",
   "detected_domains": ["Domain 1", "Domain 2"],
   "domain_details": {{
-    "Domain 1": "Specific requirements from RFP",
-    "Domain 2": "Specific requirements from RFP"
+    "Domain 1": "2-sentence description of what is required in this domain",
+    "Domain 2": "2-sentence description"
   }},
-  "reasoning": "Overall analysis",
-  "priority_domains": ["Most critical", "Second most critical"],
-  "coverage_score": "High/Medium/Low"
+  "service_model": "Managed Service / Project / Hybrid / Outsourcing",
+  "key_metrics": ["SLA metric 1", "SLA metric 2"],
+  "reasoning": "2-3 sentences explaining why these domains were identified"
 }}
+
+Domains can include ANY IT service area: SOC/SIEM, EDR, Network Security, Cloud Infrastructure, DC Operations,
+Application Managed Services, SAP Support, L1/L2/L3 Helpdesk, End User Computing, Digital Workplace,
+M365 Administration, ITSM, DevOps, Data Platform, BI/Analytics, Testing Services, etc.
+
+Do NOT limit to cybersecurity. Extract whatever domains the RFP actually covers.
 
 RFP: {truncate_text(rfp_text)}"""
 
-    content = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=800, temperature=0.1).strip()
-    if "```json" in content:
-        content = content.split("```json")[1].split("```")[0].strip()
-    elif "```" in content:
-        content = content.split("```")[1].split("```")[0].strip()
-    start = content.find("{")
-    end = content.rfind("}") + 1
+    content_raw = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=800, temperature=0.1).strip()
+    if "```json" in content_raw:
+        content_raw = content_raw.split("```json")[1].split("```")[0].strip()
+    elif "```" in content_raw:
+        content_raw = content_raw.split("```")[1].split("```")[0].strip()
+    start = content_raw.find("{")
+    end = content_raw.rfind("}") + 1
     if start != -1 and end > start:
-        content = content[start:end]
+        content_raw = content_raw[start:end]
     try:
-        result = json.loads(content)
+        result = json.loads(content_raw)
         if not isinstance(result, dict):
             raise ValueError("Not a dict")
-        if "detected_domains" not in result:
-            result["detected_domains"] = ["SIEM/SOC", "Network Security"]
-        if "reasoning" not in result:
-            result["reasoning"] = "Domains detected from RFP content."
         return result
     except:
         return {
-            "detected_domains": ["SIEM/SOC", "Endpoint Security", "Network Security", "Compliance & GRC"],
+            "rfp_type": rfp_type,
+            "detected_domains": rfp_meta.get("primary_domains", ["General IT Services"]),
             "domain_details": {},
-            "reasoning": "Multiple cybersecurity domains identified.",
-            "priority_domains": ["SIEM/SOC", "Endpoint Security"],
-            "coverage_score": "High"
+            "service_model": rfp_meta.get("service_model", "Managed Service"),
+            "key_metrics": rfp_meta.get("key_metrics", ["SLA adherence"]),
+            "reasoning": f"RFP classified as {rfp_type}."
         }
 
+def chat_with_rfp(rfp_text, question, history=None):
+    """Domain-aware RFP Q&A — persona adapts to the type of RFP."""
+    client   = get_client()
+    rfp_meta = detect_rfp_type(rfp_text)
+    rfp_type = rfp_meta.get("rfp_type", "IT Services")
+    persona  = rfp_meta.get("consultant_persona", "Senior Solutions Architect")
+    domains  = ", ".join(rfp_meta.get("primary_domains", []))
 
-def chat_with_rfp(rfp_text, question, chat_history):
-    """Interactive Q&A"""
-    client = get_client()
-    messages = [{
-        "role": "system",
-        "content": f"""You are an expert cybersecurity presales consultant. You have thoroughly analyzed this RFP and answer questions with precision, depth, and commercial awareness.
+    system_msg = f"""You are a {persona} who has thoroughly read this {rfp_type} RFP covering: {domains}.
+Answer questions with precision, depth, and commercial awareness. Be specific — reference actual RFP content where possible.
+If the answer isn't in the RFP, say so and provide your expert inference clearly labelled as inference.
+Keep answers concise but complete. Use bullet points where helpful."""
 
-When answering:
-- Be specific and reference actual RFP content
-- Provide presales context and recommendations
-- Flag ambiguities or areas needing clarification
-- Use structured responses for complex questions
-
-RFP: {truncate_text(rfp_text, 8000)}"""
-    }]
-
-    history = chat_history[-12:] if len(chat_history) > 12 else chat_history
-    for i in range(0, len(history), 2):
-        if i < len(history):
-            messages.append({"role": "user", "content": history[i]})
-        if i+1 < len(history):
-            messages.append({"role": "assistant", "content": history[i+1]})
+    messages = [{"role": "system", "content": system_msg + f"\n\nRFP DOCUMENT:\n{truncate_text(rfp_text, 8000)}"}]
+    if history:
+        for i in range(0, len(history)-1, 2):
+            if i < len(history):
+                messages.append({"role": "user",      "content": history[i]})
+            if i+1 < len(history):
+                messages.append({"role": "assistant", "content": history[i+1]})
     messages.append({"role": "user", "content": question})
 
-    return call_llm(client, messages, max_tokens=800, temperature=0.2)
+    return call_llm(client, messages, max_tokens=1200, temperature=0.3)
