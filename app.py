@@ -581,8 +581,6 @@ with st.sidebar:
         st.markdown("<div style='height:1px;background:#2a2620;margin:0 0.9rem 0.75rem'></div>", unsafe_allow_html=True)
 
     # Module list
-    st.markdown("<div style='padding:0 0.9rem'>", unsafe_allow_html=True)
-    st.markdown("<div style='font-size:0.6rem;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:#5a5248;margin-bottom:0.5rem'>MODULES</div>", unsafe_allow_html=True)
     module_states = {
         "Customer Brief": bool(st.session_state.customer_brief),
         "Pain Analysis": bool(st.session_state.pain_analysis),
@@ -597,7 +595,7 @@ with st.sidebar:
         dot_col = "#ea7c2b" if done else "#3a3630"
         txt_col = "#c8c0b4" if done else "#5a5248"
         module_rows_html += f"<div style='display:flex;align-items:center;gap:0.5rem;padding:0.2rem 0'><div style='width:6px;height:6px;border-radius:50%;background:{dot_col};flex-shrink:0'></div><div style='font-size:0.75rem;color:{txt_col}'>{_html.escape(m)}</div></div>"
-    st.markdown(f"<div style='padding:0 0.9rem'>{module_rows_html}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='padding:0 0.9rem'><div style='font-size:0.6rem;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:#5a5248;margin-bottom:0.5rem'>MODULES</div>{module_rows_html}</div>", unsafe_allow_html=True)
 
     # Document info + reset
     if st.session_state.rfp_text:
@@ -789,12 +787,21 @@ else:
                 if st.button(btn_label, key=btn_key):
                     status = st.status(f"Running {title}…", expanded=True)
                     with status:
-                        st.write(f"📄 Reading RFP ({len(st.session_state.rfp_text.split()):,} words)…")
-                        st.write("🤖 Generating analysis — this takes 15–40 seconds…")
-                        ctx = st.session_state.rfp_context or ""
-                        st.session_state[sk] = fn(st.session_state.rfp_text + ("\n\nCONTEXT:\n" + ctx if ctx else ""))
-                        status.update(label=f"{title} complete ✓", state="complete", expanded=False)
-                    st.rerun()
+                        try:
+                            st.write(f"📄 Reading RFP ({len(st.session_state.rfp_text.split()):,} words)…")
+                            st.write("🤖 Generating analysis — this takes 15–40 seconds…")
+                            ctx = st.session_state.rfp_context or ""
+                            st.session_state[sk] = fn(st.session_state.rfp_text + ("\n\nCONTEXT:\n" + ctx if ctx else ""))
+                            status.update(label=f"{title} complete ✓", state="complete", expanded=False)
+                            st.rerun()
+                        except Exception as e:
+                            err_str = str(e).lower()
+                            if any(x in err_str for x in ["rate limit","429","quota","too many"]):
+                                status.update(label="Rate limit — please wait 30s and retry", state="error", expanded=True)
+                                st.error("⚠️ Groq API rate limit hit. Wait 30–60 seconds then click again.")
+                            else:
+                                status.update(label="Error", state="error", expanded=True)
+                                st.error(f"Error: {str(e)[:200]}")
             else:
                 render_doc_content(st.session_state[sk], sk)
 
@@ -883,14 +890,23 @@ else:
             if st.button("Classify & Map Domain Scope", key="btn_domains"):
                 status = st.status("Analysing RFP domain scope…", expanded=True)
                 with status:
-                    st.write("🔍 Detecting RFP type and context…")
-                    ctx = st.session_state.rfp_context or ""
-                    rfp_plus = st.session_state.rfp_text + ("\n\nCONTEXT:\n" + ctx if ctx else "")
-                    st.write("🗂️ Mapping service towers and calculating domain weights…")
-                    st.write("⏳ This may take 30–60 seconds depending on API load…")
-                    st.session_state.domains = classify_domains(rfp_plus)
-                    status.update(label="Domain classification complete ✓", state="complete", expanded=False)
-                st.rerun()
+                    try:
+                        st.write("🔍 Detecting RFP type and context…")
+                        ctx = st.session_state.rfp_context or ""
+                        rfp_plus = st.session_state.rfp_text + ("\n\nCONTEXT:\n" + ctx if ctx else "")
+                        st.write("🗂️ Mapping service towers and calculating domain weights…")
+                        st.write("⏳ This may take 30–60 seconds depending on API load…")
+                        st.session_state.domains = classify_domains(rfp_plus)
+                        status.update(label="Domain classification complete ✓", state="complete", expanded=False)
+                        st.rerun()
+                    except Exception as e:
+                        err_str = str(e).lower()
+                        if any(x in err_str for x in ["rate limit","429","quota","too many"]):
+                            status.update(label="Rate limit hit — please wait", state="error", expanded=True)
+                            st.error("⚠️ Groq API rate limit reached. Wait 30–60 seconds, then click the button again. This is a free tier limit — it will clear automatically.")
+                        else:
+                            status.update(label="Error occurred", state="error", expanded=True)
+                            st.error(f"Error: {str(e)[:200]}")
         else:
             d             = st.session_state.domains
             rfp_type_val  = d.get("rfp_type","Unknown")
