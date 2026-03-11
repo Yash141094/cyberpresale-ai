@@ -431,12 +431,22 @@ RFP:
 
 
 
-def classify_domains(rfp_text):
-    """Domain classification - works for any RFP type"""
+def classify_domains(rfp_text, rfp_type_hint=None):
+    """Domain classification - works for any RFP type.
+    Pass rfp_type_hint to skip the detect_rfp_type() API call and save tokens."""
     client = get_client()
-    rfp_meta = detect_rfp_type(rfp_text)
-    rfp_type = rfp_meta.get("rfp_type", "IT Services") or "IT Services"
-    time.sleep(2)  # brief pause between consecutive API calls to avoid rate limit
+
+    # Use cached rfp_type if provided — avoids a second full-RFP API call
+    if rfp_type_hint:
+        rfp_type = rfp_type_hint
+    else:
+        # Only send first 6000 chars for type detection — enough signal, half the tokens
+        rfp_meta = detect_rfp_type(truncate_text(rfp_text, 6000))
+        rfp_type = rfp_meta.get("rfp_type", "IT Services") or "IT Services"
+        time.sleep(3)  # pause between back-to-back calls
+
+    # Truncate to 5000 chars for classification — captures requirements without token overflow
+    rfp_short = truncate_text(rfp_text, 5000)
     prompt = f"""Analyze this RFP and identify all service domains and sub-towers required.
 RFP Type detected: {rfp_type}
 
@@ -459,7 +469,7 @@ M365 Administration, ITSM, DevOps, Data Platform, BI/Analytics, Testing Services
 
 Do NOT limit to cybersecurity. Extract whatever domains the RFP actually covers.
 
-RFP: {truncate_text(rfp_text)}"""
+RFP: {rfp_short}"""
 
     content_raw = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=800, temperature=0.1).strip()
     if "```json" in content_raw:
