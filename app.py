@@ -6,13 +6,18 @@ from utils.ai_engine import (
     generate_pain_analysis,
     generate_solution_recommendation,
     generate_competitive_landscape,
-    generate_competitive_with_competitors,
     generate_product_mapping,
     generate_executive_summary,
     classify_domains,
     chat_with_rfp,
-    suggest_competitors,
 )
+try:
+    from utils.ai_engine import suggest_competitors, generate_competitive_with_competitors
+    COMPETITOR_FEATURES = True
+except ImportError:
+    COMPETITOR_FEATURES = False
+    def suggest_competitors(rfp_text): return ["TCS", "Infosys", "HCL Technologies"]
+    def generate_competitive_with_competitors(rfp_text, names): return generate_competitive_landscape(rfp_text)
 try:
     from utils.visuals_engine import (
         extract_cmo_data, extract_fmo_data, extract_threat_coverage,
