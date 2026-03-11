@@ -695,8 +695,9 @@ if not st.session_state.rfp_text:
 # ══════════════════════════════════════════════════════════════════════════════
 else:
     rfp_t     = get_rfp_type()
-    fn_short  = st.session_state.file_name[:55] + ("…" if len(st.session_state.file_name) > 55 else "")
-    type_disp = f" · <em style='color:var(--accent);font-style:italic'>{rfp_t}</em>" if rfp_t else ""
+    fn_raw    = st.session_state.file_name[:55] + ("…" if len(st.session_state.file_name) > 55 else "")
+    fn_short  = _html.escape(fn_raw)
+    type_disp = f" · <em style='color:var(--accent);font-style:italic'>{_html.escape(rfp_t)}</em>" if rfp_t else ""
 
     st.markdown(f"""
     <div style='padding:1.8rem 0 1rem'>
@@ -786,10 +787,14 @@ else:
             if not st.session_state[sk]:
                 about_row(about_text)
                 if st.button(btn_label, key=btn_key):
-                    with st.spinner("Generating…"):
+                    status = st.status(f"Running {title}…", expanded=True)
+                    with status:
+                        st.write(f"📄 Reading RFP ({len(st.session_state.rfp_text.split()):,} words)…")
+                        st.write("🤖 Generating analysis — this takes 15–40 seconds…")
                         ctx = st.session_state.rfp_context or ""
                         st.session_state[sk] = fn(st.session_state.rfp_text + ("\n\nCONTEXT:\n" + ctx if ctx else ""))
-                        st.rerun()
+                        status.update(label=f"{title} complete ✓", state="complete", expanded=False)
+                    st.rerun()
             else:
                 render_doc_content(st.session_state[sk], sk)
 
@@ -850,15 +855,22 @@ else:
         if not st.session_state.competitive:
             btn_label = "Analyse Competitive Landscape"
             if st.button(btn_label, key="btn_comp"):
-                with st.spinner("Generating competitive intelligence…"):
+                status = st.status("Generating competitive intelligence…", expanded=True)
+                with status:
                     ctx = st.session_state.rfp_context or ""
                     rfp_plus = st.session_state.rfp_text + ("\n\nCONTEXT:\n" + ctx if ctx else "")
                     named = comp_input.strip() or (", ".join(st.session_state.suggested_competitors) if st.session_state.suggested_competitors else "")
                     if named:
+                        st.write(f"🎯 Analysing named competitors: {named}…")
+                    else:
+                        st.write("🔍 Auto-detecting likely bidders and threat vectors…")
+                    st.write("⏳ Building competitive analysis — 20–50 seconds…")
+                    if named:
                         st.session_state.competitive = generate_competitive_with_competitors(rfp_plus, named)
                     else:
                         st.session_state.competitive = generate_competitive_landscape(rfp_plus)
-                    st.rerun()
+                    status.update(label="Competitive analysis complete ✓", state="complete", expanded=False)
+                st.rerun()
         else:
             render_doc_content(st.session_state.competitive, "competitive")
 
@@ -869,11 +881,16 @@ else:
 
         if not isinstance(st.session_state.domains, dict):
             if st.button("Classify & Map Domain Scope", key="btn_domains"):
-                with st.spinner("Classifying RFP and mapping domain scope…"):
+                status = st.status("Analysing RFP domain scope…", expanded=True)
+                with status:
+                    st.write("🔍 Detecting RFP type and context…")
                     ctx = st.session_state.rfp_context or ""
                     rfp_plus = st.session_state.rfp_text + ("\n\nCONTEXT:\n" + ctx if ctx else "")
+                    st.write("🗂️ Mapping service towers and calculating domain weights…")
+                    st.write("⏳ This may take 30–60 seconds depending on API load…")
                     st.session_state.domains = classify_domains(rfp_plus)
-                    st.rerun()
+                    status.update(label="Domain classification complete ✓", state="complete", expanded=False)
+                st.rerun()
         else:
             d             = st.session_state.domains
             rfp_type_val  = d.get("rfp_type","Unknown")
