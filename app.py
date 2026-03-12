@@ -1040,17 +1040,20 @@ else:
                     metrics_str = "  ·  ".join(key_metrics)
                     st.markdown(f"<div class='cl-info'><div class='cl-info-label'>Key SLA / KPI Metrics</div>{metrics_str}</div>", unsafe_allow_html=True)
 
-            # Out-of-scope towers
+            # Out-of-scope towers — check FULL RFP TEXT not just detected domain names
+            rfp_lower_full = st.session_state.rfp_text.lower()
             all_towers = [
-                ("Cybersecurity / SOC",          ["cybersecurity","siem","soc","edr","threat","zero trust","grc"]),
-                ("Infrastructure & DC Ops",      ["infrastructure","data centre","dc ops","compute","storage","cloud migration","vmware"]),
-                ("Application Managed Services", ["application","ams","sap","erp","l1","l2","l3","release","devops"]),
-                ("End User Computing",           ["end user","helpdesk","desktop","euc","m365","device management","vdi"]),
-                ("Digital Workplace",            ["digital workplace","teams","sharepoint","intranet","collaboration","purview"]),
-                ("Data & Analytics",             ["data platform","analytics","bi","etl","data warehouse","mlops"]),
+                ("Cybersecurity / SOC",          ["cybersecurity","siem","soc","edr","threat","zero trust","grc","sentinel","soar","vulnerability"]),
+                ("Infrastructure & DC Ops",      ["infrastructure","data centre","server","compute","storage","vmware","backup","san","nas","dc ops"]),
+                ("Application Managed Services", ["application managed","ams","sap","erp","oracle","l2","l3","application support","release management"]),
+                ("End User Computing",           ["end user","helpdesk","service desk","desktop","euc","m365","intune","vdi","citrix","endpoint"]),
+                ("Digital Workplace",            ["digital workplace","teams","sharepoint","collaboration","purview","m365 e5","power platform","onedrive"]),
+                ("Cloud & Migration",            ["cloud","azure","aws","migration","finops","landing zone","cloud native","kubernetes"]),
+                ("Networking",                   ["network","wan","lan","sd-wan","mpls","firewall","routing","switching","noc"]),
+                ("Data & Analytics",             ["data platform","analytics","bi","power bi","databricks","synapse","data lake","data warehouse"]),
             ]
-            domain_str = " ".join(domains_list).lower() + " " + rfp_type_val.lower()
-            oos = [name for name, kws in all_towers if not any(kw in domain_str for kw in kws)]
+            # A tower is out of scope only if its keywords don't appear in the actual RFP text
+            oos = [name for name, kws in all_towers if not any(kw in rfp_lower_full for kw in kws)]
             if oos:
                 oos_pills = "".join([f"<span class='cl-pill pill-red'>{t}</span>" for t in oos])
                 st.markdown(f"""
