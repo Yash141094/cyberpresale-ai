@@ -17,9 +17,12 @@ def get_client():
         base_url="https://api.groq.com/openai/v1"
     )
 
-MODEL = "llama-3.3-70b-versatile"
+MODEL = "llama-3.1-8b-instant"
 
-def truncate_text(text, max_chars=12000):
+# Safe limits for 8B model: 8k context window, ~6k input max
+MAX_INPUT_CHARS = 4000   # ~1000 tokens — leaves plenty of room for prompt + output
+
+def truncate_text(text, max_chars=MAX_INPUT_CHARS):
     return text[:max_chars] if len(text) > max_chars else text
 
 
@@ -30,9 +33,10 @@ def _is_rate_limit(e):
     err = str(e).lower()
     return any(x in err for x in ["rate limit", "rate_limit", "429", "quota", "too many requests", "ratelimit"])
 
-def call_llm(client, messages, max_tokens=1500, temperature=0.2):
-    """Central LLM caller with exponential backoff on rate limit."""
-    max_retries = 5
+def call_llm(client, messages, max_tokens=1000, temperature=0.2, _retry_cb=None):
+    """Central LLM caller with exponential backoff on rate limit.
+    _retry_cb: optional callable(attempt, wait_secs) called before each retry — use for UI feedback."""
+    max_retries = 4
     for attempt in range(max_retries):
         try:
             response = client.chat.completions.create(
@@ -44,7 +48,9 @@ def call_llm(client, messages, max_tokens=1500, temperature=0.2):
             return response.choices[0].message.content
         except Exception as e:
             if _is_rate_limit(e) and attempt < max_retries - 1:
-                wait = (5 * (2 ** attempt)) + random.uniform(0, 3)
+                wait = 15 + (10 * attempt) + random.uniform(0, 5)
+                if _retry_cb:
+                    _retry_cb(attempt + 1, wait)
                 time.sleep(wait)
                 continue
             raise
@@ -173,7 +179,7 @@ RFP:
 
 Every insight must be specific to this RFP. No generic statements."""
 
-    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1500, temperature=0.3)
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1000, temperature=0.3)
 
 
 
@@ -218,7 +224,7 @@ The 2-3 requirements where winning or losing this deal will be decided.
 RFP:
 {truncate_text(rfp_text)}"""
 
-    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=2000, temperature=0.2)
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=900, temperature=0.2)
 
 
 
@@ -271,7 +277,7 @@ RFP:
 
 Be specific and commercially grounded. Every recommendation must be defensible against the RFP. The volume table must be populated from actual RFP data."""
 
-    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=2000, temperature=0.2)
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=900, temperature=0.2)
 
 
 
@@ -332,7 +338,7 @@ RFP (for additional context):
 
 Be specific to this deal. Every insight must reference actual RFP signals. No generic competitive analysis."""
 
-    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=2500, temperature=0.2)
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1500, temperature=0.2)
 
 
 
@@ -385,7 +391,7 @@ IMPORTANT: Only recommend vendors, tools, and platforms that genuinely fit this 
 RFP:
 {truncate_text(rfp_text, 6000)}"""
 
-    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=3000, temperature=0.15)
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1500, temperature=0.15)
 
 
 
@@ -427,26 +433,27 @@ TONE: Confident, business-first. No acronyms without explanation. Write as if th
 RFP:
 {truncate_text(rfp_text)}"""
 
-    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1200, temperature=0.3)
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=900, temperature=0.3)
 
 
 
-def classify_domains(rfp_text, rfp_type_hint=None):
+def classify_domains(rfp_text, rfp_type_hint=None, retry_cb=None):
     """Domain classification - works for any RFP type.
-    Pass rfp_type_hint to skip the detect_rfp_type() API call and save tokens."""
+    Pass rfp_type_hint to skip the detect_rfp_type() API call and save tokens.
+    Pass retry_cb(attempt, wait_secs) for UI feedback during rate limit retries."""
     client = get_client()
 
     # Use cached rfp_type if provided — avoids a second full-RFP API call
     if rfp_type_hint:
         rfp_type = rfp_type_hint
     else:
-        # Only send first 6000 chars for type detection — enough signal, half the tokens
-        rfp_meta = detect_rfp_type(truncate_text(rfp_text, 6000))
+        # Only send first 4000 chars for type detection
+        rfp_meta = detect_rfp_type(truncate_text(rfp_text, 4000))
         rfp_type = rfp_meta.get("rfp_type", "IT Services") or "IT Services"
         time.sleep(3)  # pause between back-to-back calls
 
-    # Truncate to 5000 chars for classification — captures requirements without token overflow
-    rfp_short = truncate_text(rfp_text, 5000)
+    # Truncate aggressively — 8B model has 8k context, keep well under
+    rfp_short = truncate_text(rfp_text, 4000)
     prompt = f"""Analyze this RFP and identify all service domains and sub-towers required.
 RFP Type detected: {rfp_type}
 
@@ -471,7 +478,7 @@ Do NOT limit to cybersecurity. Extract whatever domains the RFP actually covers.
 
 RFP: {rfp_short}"""
 
-    content_raw = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=800, temperature=0.1).strip()
+    content_raw = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=800, temperature=0.1, _retry_cb=retry_cb).strip()
     if "```json" in content_raw:
         content_raw = content_raw.split("```json")[1].split("```")[0].strip()
     elif "```" in content_raw:
@@ -520,7 +527,7 @@ def chat_with_rfp(rfp_text, question, history=None):
                 messages.append({"role": "assistant", "content": history[i+1]})
     messages.append({"role": "user", "content": question})
 
-    return call_llm(client, messages, max_tokens=1200, temperature=0.3)
+    return call_llm(client, messages, max_tokens=900, temperature=0.3)
 
 
 
@@ -607,4 +614,4 @@ def generate_competitive_with_competitors(rfp_text, competitor_names):
         "RFP:\n" + truncate_text(rfp_text, 6000)
     )
 
-    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=2500, temperature=0.2)
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1500, temperature=0.2)
