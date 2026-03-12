@@ -79,9 +79,9 @@ def extract_rfp_signals(rfp_text):
 If a field cannot be determined from the RFP, use null. Be specific - extract actual text signals, not generic guesses.
 
 RFP:
-""" + rfp_text[:8000]
+""" + truncate_text(rfp_text, 4000)
 
-    raw = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1000, temperature=0.1)
+    raw = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=600, temperature=0.1)
     raw = raw.strip()
     if "```json" in raw: raw = raw.split("```json")[1].split("```")[0].strip()
     elif "```" in raw: raw = raw.split("```")[1].split("```")[0].strip()
@@ -117,7 +117,7 @@ Examples:
 - SOC + helpdesk + infra all in one -> Multi-Tower, consultant_persona: IT Managed Services Director
 
 RFP:
-""" + rfp_text[:5000]
+""" + truncate_text(rfp_text, 4000)
 
     raw = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=600, temperature=0.1)
     raw = raw.strip()
@@ -548,7 +548,7 @@ def suggest_competitors(rfp_text):
         "Accenture, Capgemini, Cognizant, DXC Technology, NTT DATA, Fujitsu, Atos, "
         "LTIMindtree, Tech Mahindra, Unisys, Kyndryl, Rackspace, Leidos, CGI Group.\n\n"
         "Respond ONLY with a JSON array of 2-3 names. No explanation. Just the array.\n\n"
-        "RFP:\n" + rfp_text[:3000]
+        "RFP:\n" + truncate_text(rfp_text, 3000)
     )
     raw = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=80, temperature=0.1)
     raw = raw.strip()
