@@ -25,6 +25,21 @@ MAX_INPUT_CHARS = 4000   # ~1000 tokens — leaves plenty of room for prompt + o
 def truncate_text(text, max_chars=MAX_INPUT_CHARS):
     return text[:max_chars] if len(text) > max_chars else text
 
+def smart_sample(text, max_chars=6000):
+    """Sample beginning + middle + end of document so classification
+    sees the full scope even for long RFPs — not just the intro section."""
+    if len(text) <= max_chars:
+        return text
+    third = max_chars // 3
+    mid_start = len(text) // 2 - third // 2
+    return (
+        text[:third] +
+        "\n\n[...]\n\n" +
+        text[mid_start: mid_start + third] +
+        "\n\n[...]\n\n" +
+        text[-third:]
+    )
+
 
 def _is_rate_limit(e):
     """Detect rate limit errors regardless of client (OpenAI, Groq, etc.)."""
@@ -79,7 +94,7 @@ def extract_rfp_signals(rfp_text):
 If a field cannot be determined from the RFP, use null. Be specific - extract actual text signals, not generic guesses.
 
 RFP:
-""" + truncate_text(rfp_text, 4000)
+""" + smart_sample(rfp_text, 6000)
 
     raw = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=600, temperature=0.1)
     raw = raw.strip()
@@ -117,7 +132,7 @@ Examples:
 - SOC + helpdesk + infra all in one -> Multi-Tower, consultant_persona: IT Managed Services Director
 
 RFP:
-""" + truncate_text(rfp_text, 4000)
+""" + smart_sample(rfp_text, 6000)
 
     raw = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=600, temperature=0.1)
     raw = raw.strip()
@@ -448,33 +463,39 @@ def classify_domains(rfp_text, rfp_type_hint=None, retry_cb=None):
         rfp_type = rfp_type_hint
     else:
         # Only send first 4000 chars for type detection
-        rfp_meta = detect_rfp_type(truncate_text(rfp_text, 4000))
+        rfp_meta = detect_rfp_type(smart_sample(rfp_text, 4000))
         rfp_type = rfp_meta.get("rfp_type", "IT Services") or "IT Services"
         time.sleep(3)  # pause between back-to-back calls
 
     # Truncate aggressively — 8B model has 8k context, keep well under
-    rfp_short = truncate_text(rfp_text, 4000)
-    prompt = f"""Analyze this RFP and identify all service domains and sub-towers required.
-RFP Type detected: {rfp_type}
+    rfp_short = smart_sample(rfp_text, 5000)
+    prompt = f"""You are analysing an RFP document. Your job is to identify ONLY the service domains that are EXPLICITLY described or required in this RFP. Do NOT invent or assume domains not mentioned.
+
+RFP Type: {rfp_type}
+
+RULES:
+- Only include domains with clear evidence in the RFP text
+- Maximum 10 domains total
+- Assign domain_weights as integers reflecting relative scope depth (larger number = more requirements in that domain)
+- Weights must reflect actual requirements volume — do NOT assign equal weights unless truly equal
+- domain_details must be a 1-sentence summary of what the RFP actually asks for in that domain
 
 Respond ONLY with valid JSON:
 {{
   "rfp_type": "{rfp_type}",
-  "detected_domains": ["Domain 1", "Domain 2"],
+  "detected_domains": ["Domain Name 1", "Domain Name 2"],
+  "domain_weights": {{
+    "Domain Name 1": 35,
+    "Domain Name 2": 25
+  }},
   "domain_details": {{
-    "Domain 1": "2-sentence description of what is required in this domain",
-    "Domain 2": "2-sentence description"
+    "Domain Name 1": "One sentence describing what the RFP requires in this domain.",
+    "Domain Name 2": "One sentence describing what the RFP requires in this domain."
   }},
   "service_model": "Managed Service / Project / Hybrid / Outsourcing",
-  "key_metrics": ["SLA metric 1", "SLA metric 2"],
-  "reasoning": "2-3 sentences explaining why these domains were identified"
+  "key_metrics": ["most important SLA metric 1", "metric 2"],
+  "reasoning": "1-2 sentences explaining why these specific domains were identified."
 }}
-
-Domains can include ANY IT service area: SOC/SIEM, EDR, Network Security, Cloud Infrastructure, DC Operations,
-Application Managed Services, SAP Support, L1/L2/L3 Helpdesk, End User Computing, Digital Workplace,
-M365 Administration, ITSM, DevOps, Data Platform, BI/Analytics, Testing Services, etc.
-
-Do NOT limit to cybersecurity. Extract whatever domains the RFP actually covers.
 
 RFP: {rfp_short}"""
 
