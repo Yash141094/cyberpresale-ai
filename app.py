@@ -937,28 +937,34 @@ else:
                 "#374151","#065f46",
             ]
 
-            # Build domain weights — we weight by keyword density in RFP
-            rfp_lower = st.session_state.rfp_text.lower()
-            tower_keywords = {
-                "Cybersecurity / SOC":           ["siem","soc","edr","threat","grc","pen test","vulnerability","firewall","ztna","zero trust","dlp","soar"],
-                "Infrastructure & DC Ops":       ["server","data centre","dc","compute","vmware","hci","storage","san","nas","backup","dr","network","sd-wan"],
-                "Application Managed Services":  ["sap","erp","ams","l1","l2","l3","application support","release","devops","change management","jira","servicenow ticket"],
-                "End User Computing":            ["helpdesk","desktop","endpoint","euc","m365","intune","vdi","citrix","dex","service desk","patch"],
-                "Digital Workplace":             ["sharepoint","teams","intranet","collaboration","purview","governance","power platform","onedrive","m365"],
-                "Cloud & Migration":             ["cloud","aws","azure","gcp","migration","lift-and-shift","cloud native","kubernetes","container","finops"],
-                "Data & Analytics":              ["data lake","analytics","bi","etl","data warehouse","mlops","machine learning","power bi","tableau","databricks"],
-                "Networking":                    ["wan","lan","bgp","routing","switching","mpls","sd-wan","network operations","noc","wireless"],
-            }
-            weights = {}
-            for tower, kws in tower_keywords.items():
-                count = sum(rfp_lower.count(kw) for kw in kws)
-                if count > 0:
-                    weights[tower] = count
+            # Use AI-provided weights first — these reflect actual requirements depth
+            ai_weights = d.get("domain_weights", {})
 
-            # Also include detected domains with a baseline weight if not already present
-            for dom in domains_list:
-                if dom not in weights:
-                    weights[dom] = 5  # baseline
+            if ai_weights and isinstance(ai_weights, dict):
+                # Only include domains that are in the detected list
+                weights = {k: int(v) for k, v in ai_weights.items()
+                           if k in domains_list and isinstance(v, (int, float)) and v > 0}
+            else:
+                weights = {}
+
+            # Fallback: keyword density only if AI gave no weights
+            if not weights:
+                rfp_lower = st.session_state.rfp_text.lower()
+                tower_keywords = {
+                    "Cybersecurity / SOC":           ["siem","soc","edr","threat","grc","vulnerability","firewall","zero trust","dlp","soar"],
+                    "Infrastructure & DC Ops":       ["server","data centre","dc","compute","vmware","storage","san","nas","backup","network","sd-wan"],
+                    "Application Managed Services":  ["sap","erp","ams","application support","release","devops","change management"],
+                    "End User Computing":            ["helpdesk","desktop","endpoint","euc","m365","intune","vdi","citrix","service desk"],
+                    "Digital Workplace":             ["sharepoint","teams","intranet","collaboration","purview","power platform"],
+                    "Cloud & Migration":             ["cloud","aws","azure","gcp","migration","cloud native","kubernetes","finops"],
+                    "Data & Analytics":              ["data lake","analytics","bi","etl","data warehouse","power bi","databricks"],
+                    "Networking":                    ["wan","lan","routing","switching","mpls","sd-wan","network operations","noc"],
+                }
+                for dom in domains_list:
+                    # Only count keywords for domains the AI actually detected
+                    kws = tower_keywords.get(dom, [dom.lower().split()[0]])
+                    count = sum(rfp_lower.count(kw) for kw in kws)
+                    weights[dom] = max(count, 1)
 
             if not weights:
                 weights = {d_: 10 for d_ in (domains_list or ["General IT Services"])}
@@ -967,7 +973,7 @@ else:
             values = list(weights.values())
             total  = sum(values)
             pcts   = [round(v/total*100, 1) for v in values]
-            colors = DOMAIN_COLORS[:len(labels)]
+            colors = (DOMAIN_COLORS * 3)[:len(labels)]
 
             fig = go.Figure(go.Pie(
                 labels=labels,
@@ -1009,7 +1015,10 @@ else:
                 for i, (lbl, pct) in enumerate(zip(labels, pcts)):
                     color = colors[i] if i < len(colors) else "#888"
                     detail = domain_details.get(lbl, "") or ""
-                    detail_safe = _html.escape(str(detail))[:120]
+                    # Strip any HTML tags the AI may have returned, then escape remainder
+                    import re as _re
+                    detail_clean = _re.sub(r'<[^>]+>', '', str(detail)).strip()[:120]
+                    detail_safe = _html.escape(detail_clean)
                     detail_html = f'<div style="font-size:0.75rem;color:var(--text3);line-height:1.5;margin-top:0.1rem">{detail_safe}</div>' if detail_safe else ""
                     lbl_safe = _html.escape(str(lbl))
                     st.markdown(f"""
