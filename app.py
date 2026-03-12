@@ -464,6 +464,10 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
+def _is_rate_limit_err(e):
+    err = str(e).lower()
+    return any(x in err for x in ["rate limit","rate_limit","429","quota","too many requests","ratelimit"])
+
 def get_rfp_type():
     if isinstance(st.session_state.domains, dict):
         return st.session_state.domains.get("rfp_type") or None
@@ -1059,26 +1063,49 @@ else:
         else:
             if not get_rfp_type(): classify_nudge()
             vc1, vc2 = st.columns(2, gap="medium")
+            _cached_rfp_type = get_rfp_type()  # reuse — avoids repeat type-detection API call
+            _is_sec = bool(_cached_rfp_type and "cyber" in _cached_rfp_type.lower())
             with vc1:
                 if st.button("Generate CMO", key="btn_cmo"):
-                    with st.spinner("Analysing current environment…"):
-                        st.session_state.vis_cmo = extract_cmo_data(st.session_state.rfp_text); st.rerun()
+                    try:
+                        with st.spinner("Analysing current environment…"):
+                            st.session_state.vis_cmo = extract_cmo_data(
+                                st.session_state.rfp_text, rfp_type_hint=_cached_rfp_type); st.rerun()
+                    except Exception as e:
+                        st.error("⚠️ Rate limit hit — wait 30s then retry." if _is_rate_limit_err(e) else str(e)[:200])
                 if st.button("Generate FMO", key="btn_fmo"):
                     if not st.session_state.solution_rec:
                         st.warning("Run Solution Recommendation first — FMO is built from the proposed solution.")
                     else:
-                        with st.spinner("Building future architecture…"):
-                            st.session_state.vis_fmo = extract_fmo_data(st.session_state.solution_rec); st.rerun()
+                        try:
+                            with st.spinner("Building future architecture…"):
+                                st.session_state.vis_fmo = extract_fmo_data(
+                                    st.session_state.solution_rec, rfp_type_hint=_cached_rfp_type); st.rerun()
+                        except Exception as e:
+                            st.error("⚠️ Rate limit hit — wait 30s then retry." if _is_rate_limit_err(e) else str(e)[:200])
                 if st.button(cov_label, key="btn_threat"):
-                    with st.spinner("Mapping coverage…"):
-                        st.session_state.vis_threat = extract_threat_coverage(st.session_state.rfp_text); st.rerun()
+                    try:
+                        with st.spinner("Mapping coverage…"):
+                            st.session_state.vis_threat = extract_threat_coverage(
+                                st.session_state.rfp_text,
+                                rfp_type_hint=_cached_rfp_type, is_security_hint=_is_sec); st.rerun()
+                    except Exception as e:
+                        st.error("⚠️ Rate limit hit — wait 30s then retry." if _is_rate_limit_err(e) else str(e)[:200])
             with vc2:
                 if st.button("Requirements Traceability", key="btn_trace"):
-                    with st.spinner("Building RTM…"):
-                        st.session_state.vis_traceability = extract_requirements_traceability(st.session_state.rfp_text); st.rerun()
+                    try:
+                        with st.spinner("Building RTM…"):
+                            st.session_state.vis_traceability = extract_requirements_traceability(
+                                st.session_state.rfp_text, rfp_type_hint=_cached_rfp_type); st.rerun()
+                    except Exception as e:
+                        st.error("⚠️ Rate limit hit — wait 30s then retry." if _is_rate_limit_err(e) else str(e)[:200])
                 if st.button("Vendor Positioning Map", key="btn_vendor"):
-                    with st.spinner("Analysing vendor landscape…"):
-                        st.session_state.vis_vendor = extract_vendor_positioning(st.session_state.rfp_text); st.rerun()
+                    try:
+                        with st.spinner("Analysing vendor landscape…"):
+                            st.session_state.vis_vendor = extract_vendor_positioning(
+                                st.session_state.rfp_text, rfp_type_hint=_cached_rfp_type); st.rerun()
+                    except Exception as e:
+                        st.error("⚠️ Rate limit hit — wait 30s then retry." if _is_rate_limit_err(e) else str(e)[:200])
                 if any([st.session_state.vis_cmo, st.session_state.vis_fmo, st.session_state.vis_threat, st.session_state.vis_traceability, st.session_state.vis_vendor]):
                     if st.button("↺ Clear", key="btn_clrvis"):
                         for vk in ["vis_cmo","vis_fmo","vis_threat","vis_traceability","vis_vendor"]: st.session_state[vk] = None
