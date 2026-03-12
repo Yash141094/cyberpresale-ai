@@ -26,12 +26,13 @@ def truncate_text(text, max_chars=MAX_INPUT_CHARS):
     return text[:max_chars] if len(text) > max_chars else text
 
 def smart_sample(text, max_chars=6000):
-    """Sample beginning + middle + end of document so classification
-    sees the full scope even for long RFPs — not just the intro section."""
+    """Sample beginning + early-middle + end of document so classification
+    sees the full scope even for long RFPs — towers/scope usually in first 40% of doc."""
     if len(text) <= max_chars:
         return text
     third = max_chars // 3
-    mid_start = len(text) // 2 - third // 2
+    # Bias middle sample to 25% mark — scope/towers sections appear early in RFPs
+    mid_start = max(len(text) // 4, third)
     return (
         text[:third] +
         "\n\n[...]\n\n" +
@@ -94,7 +95,7 @@ def extract_rfp_signals(rfp_text):
 If a field cannot be determined from the RFP, use null. Be specific - extract actual text signals, not generic guesses.
 
 RFP:
-""" + smart_sample(rfp_text, 6000)
+""" + smart_sample(rfp_text, 8000)
 
     raw = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=600, temperature=0.1)
     raw = raw.strip()
@@ -132,7 +133,7 @@ Examples:
 - SOC + helpdesk + infra all in one -> Multi-Tower, consultant_persona: IT Managed Services Director
 
 RFP:
-""" + smart_sample(rfp_text, 6000)
+""" + smart_sample(rfp_text, 8000)
 
     raw = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=600, temperature=0.1)
     raw = raw.strip()
@@ -463,12 +464,12 @@ def classify_domains(rfp_text, rfp_type_hint=None, retry_cb=None):
         rfp_type = rfp_type_hint
     else:
         # Only send first 4000 chars for type detection
-        rfp_meta = detect_rfp_type(smart_sample(rfp_text, 4000))
+        rfp_meta = detect_rfp_type(smart_sample(rfp_text, 8000))
         rfp_type = rfp_meta.get("rfp_type", "IT Services") or "IT Services"
         time.sleep(3)  # pause between back-to-back calls
 
     # Truncate aggressively — 8B model has 8k context, keep well under
-    rfp_short = smart_sample(rfp_text, 5000)
+    rfp_short = smart_sample(rfp_text, 8000)
     prompt = f"""You are analysing an RFP document. Your job is to identify ONLY the service domains that are EXPLICITLY described or required in this RFP. Do NOT invent or assume domains not mentioned.
 
 RFP Type: {rfp_type}
