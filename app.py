@@ -894,28 +894,32 @@ else:
             if st.button("Classify & Map Domain Scope", key="btn_domains"):
                 status = st.status("Analysing RFP domain scope…", expanded=True)
                 with status:
+                    retry_placeholder = st.empty()
                     try:
                         ctx = st.session_state.rfp_context or ""
                         rfp_plus = st.session_state.rfp_text + ("\n\nCONTEXT:\n" + ctx if ctx else "")
-                        # Reuse cached rfp_type if already known — saves one full API call
                         cached_type = get_rfp_type()
                         if cached_type:
-                            st.write(f"✅ RFP type already detected: **{cached_type}** — skipping re-detection…")
+                            st.write(f"✅ RFP type cached: **{cached_type}** — skipping re-detection")
                         else:
-                            st.write("🔍 Detecting RFP type and context…")
-                        st.write("🗂️ Mapping service towers and calculating domain weights…")
-                        st.write("⏳ This may take 20–40 seconds…")
-                        st.session_state.domains = classify_domains(rfp_plus, rfp_type_hint=cached_type)
+                            st.write("🔍 Detecting RFP type…")
+                        st.write("🗂️ Mapping service towers…")
+
+                        def show_retry(attempt, wait):
+                            retry_placeholder.warning(f"⏳ API rate limit — auto-retrying in {int(wait)}s (attempt {attempt}/3)…")
+
+                        st.session_state.domains = classify_domains(rfp_plus, rfp_type_hint=cached_type, retry_cb=show_retry)
+                        retry_placeholder.empty()
                         status.update(label="Domain classification complete ✓", state="complete", expanded=False)
                         st.rerun()
                     except Exception as e:
                         err_str = str(e).lower()
                         if any(x in err_str for x in ["rate limit","429","quota","too many"]):
-                            status.update(label="Rate limit hit — please wait 30–60s", state="error", expanded=True)
-                            st.error("⚠️ Groq free tier rate limit reached. Wait 30–60 seconds then click again — it clears automatically.")
+                            status.update(label="Rate limit — wait 30s and retry", state="error", expanded=True)
+                            retry_placeholder.error("⚠️ Groq rate limit exhausted after retries. Wait 30–60s then click again.")
                         else:
                             status.update(label="Error occurred", state="error", expanded=True)
-                            st.error(f"Error: {str(e)[:200]}")
+                            retry_placeholder.error(f"Error: {str(e)[:200]}")
         else:
             d             = st.session_state.domains
             rfp_type_val  = d.get("rfp_type","Unknown")
