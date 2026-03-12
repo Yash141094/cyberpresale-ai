@@ -22,11 +22,11 @@ except ImportError:
 try:
     from utils.visuals_engine import (
         extract_cmo_data, extract_fmo_data, extract_threat_coverage,
-        extract_requirements_traceability, extract_vendor_positioning
+        extract_requirements_traceability
     )
     from utils.visual_renderer import (
         render_cmo, render_fmo, render_threat_coverage,
-        render_requirements_traceability, render_vendor_positioning
+        render_requirements_traceability
     )
     import plotly.graph_objects as go
     VISUALS_AVAILABLE = True
@@ -1112,17 +1112,10 @@ else:
                     try:
                         with st.spinner("Building RTM…"):
                             st.session_state.vis_traceability = extract_requirements_traceability(
-                                st.session_state.rfp_text, rfp_type_hint=_cached_rfp_type); st.rerun()
+                                st.session_state.rfp_text); st.rerun()
                     except Exception as e:
                         st.error("⚠️ Rate limit hit — wait 30s then retry." if _is_rate_limit_err(e) else str(e)[:200])
-                if st.button("Vendor Positioning Map", key="btn_vendor"):
-                    try:
-                        with st.spinner("Analysing vendor landscape…"):
-                            st.session_state.vis_vendor = extract_vendor_positioning(
-                                st.session_state.rfp_text, rfp_type_hint=_cached_rfp_type); st.rerun()
-                    except Exception as e:
-                        st.error("⚠️ Rate limit hit — wait 30s then retry." if _is_rate_limit_err(e) else str(e)[:200])
-                if any([st.session_state.vis_cmo, st.session_state.vis_fmo, st.session_state.vis_threat, st.session_state.vis_traceability, st.session_state.vis_vendor]):
+                if any([st.session_state.vis_cmo, st.session_state.vis_fmo, st.session_state.vis_threat, st.session_state.vis_traceability]):
                     if st.button("↺ Clear", key="btn_clrvis"):
                         for vk in ["vis_cmo","vis_fmo","vis_threat","vis_traceability","vis_vendor"]: st.session_state[vk] = None
                         st.rerun()
@@ -1131,7 +1124,6 @@ else:
                 ("vis_fmo","Future Mode of Operations",render_fmo),
                 ("vis_threat",cov_label,render_threat_coverage),
                 ("vis_traceability","Requirements Traceability",render_requirements_traceability),
-                ("vis_vendor","Vendor Positioning Map",render_vendor_positioning),
             ]:
                 if st.session_state[vis_key]:
                     st.markdown(f"<div class='cl-label' style='margin-top:1rem'>{vis_label}</div>", unsafe_allow_html=True)
