@@ -906,20 +906,30 @@ else:
             if st.button(btn_label, key="btn_comp"):
                 status = st.status("Generating competitive intelligence…", expanded=True)
                 with status:
-                    ctx = st.session_state.rfp_context or ""
-                    rfp_plus = st.session_state.rfp_text + ("\n\nCONTEXT:\n" + ctx if ctx else "")
-                    named = comp_input.strip() or (", ".join(st.session_state.suggested_competitors) if st.session_state.suggested_competitors else "")
-                    if named:
-                        st.write(f"🎯 Analysing named competitors: {named}…")
-                    else:
-                        st.write("🔍 Auto-detecting likely bidders and threat vectors…")
-                    st.write("⏳ Building competitive analysis — 20–50 seconds…")
-                    if named:
-                        st.session_state.competitive = generate_competitive_with_competitors(rfp_plus, named)
-                    else:
-                        st.session_state.competitive = generate_competitive_landscape(rfp_plus)
-                    status.update(label="Competitive analysis complete ✓", state="complete", expanded=False)
-                st.rerun()
+                    try:
+                        ctx = st.session_state.rfp_context or ""
+                        rfp_plus = st.session_state.rfp_text + ("\n\nCONTEXT:\n" + ctx if ctx else "")
+                        named = comp_input.strip() or (", ".join(st.session_state.suggested_competitors) if st.session_state.suggested_competitors else "")
+                        if named:
+                            st.write(f"🎯 Competitors identified: **{named}**")
+                            st.write("📊 Step 1 of 2 — Fetching market intelligence: revenue, geographic presence, known public wins…")
+                            st.write("⏳ Step 2 of 2 will follow — deal-specific threat analysis…")
+                            st.write("⏳ This runs two API calls — allow 30–60 seconds…")
+                            st.session_state.competitive = generate_competitive_with_competitors(rfp_plus, named)
+                        else:
+                            st.write("🔍 Auto-detecting likely bidders based on RFP signals…")
+                            st.write("⏳ Building competitive analysis — 20–40 seconds…")
+                            st.session_state.competitive = generate_competitive_landscape(rfp_plus)
+                        status.update(label="Competitive analysis complete ✓", state="complete", expanded=False)
+                        st.rerun()
+                    except Exception as e:
+                        err_str = str(e).lower()
+                        if any(x in err_str for x in ["rate limit","429","quota","too many"]):
+                            status.update(label="Rate limit — wait 30s and retry", state="error", expanded=True)
+                            st.error("⚠️ Groq rate limit hit. Wait 30–60 seconds then click again.")
+                        else:
+                            status.update(label="Error", state="error", expanded=True)
+                            st.error(f"Error: {str(e)[:200]}")
         else:
             render_doc_content(st.session_state.competitive, "competitive")
 
