@@ -195,7 +195,7 @@ RFP:
 
 Every insight must be specific to this RFP. No generic statements."""
 
-    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1000, temperature=0.3)
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1500, temperature=0.3)
 
 
 
@@ -240,7 +240,7 @@ The 2-3 requirements where winning or losing this deal will be decided.
 RFP:
 {truncate_text(rfp_text)}"""
 
-    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=900, temperature=0.2)
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1500, temperature=0.2)
 
 
 
@@ -248,52 +248,41 @@ def generate_solution_recommendation(rfp_text):
     """Strategic solution recommendation - domain agnostic"""
     client = get_client()
     rfp_meta = detect_rfp_type(rfp_text)
-    persona  = rfp_meta.get("consultant_persona", "Senior Solutions Architect")
-    rfp_type = rfp_meta.get("rfp_type", "IT Services")
+    persona  = rfp_meta.get("consultant_persona", "Senior Solutions Architect") or "Senior Solutions Architect"
+    rfp_type = rfp_meta.get("rfp_type", "IT Services") or "IT Services"
     domains  = ", ".join(rfp_meta.get("primary_domains", []))
     tech     = ", ".join(rfp_meta.get("technology_stack", []))
     prompt = f"""You are a {persona} designing the winning solution for a {rfp_type} RFP.
-
 RFP Domains: {domains}
 Technology Stack: {tech}
 
-Produce a structured solution recommendation a presales team can use to build a winning proposal.
+Write a structured solution recommendation. Be specific and concise — complete every section fully.
 
 ## SOLUTION PHILOSOPHY
-In 3-5 sentences: what is the core strategic approach? Why this over alternatives? What is the headline value proposition?
+2-3 sentences: core strategic approach and headline value proposition.
 
-## RECOMMENDED ARCHITECTURE / OPERATING MODEL
-The proposed solution structure. How does it work? What are the key components? How do they integrate? Use specific product names and service models where relevant.
+## RECOMMENDED ARCHITECTURE
+Key components, specific product names, how they integrate. 3-4 sentences.
 
-## IMPLEMENTATION APPROACH & PHASING
-Phase 1 / Phase 2 / Phase 3 with timelines, key milestones, and what the customer gets at each stage. Be realistic.
+## IMPLEMENTATION PHASING
+Phase 1 (0-3 months), Phase 2 (3-9 months), Phase 3 (9-18 months). One sentence per phase.
 
-## TEAM & GOVERNANCE MODEL
-Who delivers this? What roles, where located, what governance structure? How does the customer interact with the delivery team day-to-day?
+## TEAM & GOVERNANCE
+Key roles and governance model. 3-4 bullet points.
 
-## SLA & SERVICE LEVELS
-Proposed SLAs for each major service tower. How do they meet or exceed the RFP requirements?
-
-## IN-SCOPE VOLUME SUMMARY
-Produce a markdown table of ALL quantified volumes from the RFP. Columns: Service Tower | Item | Volume/Quantity | Unit | Notes.
-Example rows: Cybersecurity | Endpoints under EDR | 8,500 | Devices | Windows only | or | EUC | Helpdesk tickets/month | ~3,500 | Tickets | Estimated from user count.
-Extract every number from the RFP - users, endpoints, servers, tickets, locations, applications, VMs, storage, etc. If a volume is not stated, mark as TBC.
-
-## POC / PILOT STRATEGY
-What should the POC demonstrate? How long? What success criteria? What does a winning POC look like for THIS customer?
+## SLA COMMITMENTS
+Top 4-5 SLA metrics with specific targets (e.g. P1 MTTR ≤ 2hrs, 99.99% availability).
 
 ## COMMERCIAL STRATEGY
-Pricing model, deal structure, how to present TCO. What is the anchor message on value?
+Pricing model and TCO anchor message. 2-3 sentences.
 
 ## KEY RISKS & MITIGATIONS
-Top 3-4 delivery risks for this engagement and how we mitigate them in the proposal.
+Top 3 risks with mitigations. One line each.
 
 RFP:
-{truncate_text(rfp_text)}
+{truncate_text(rfp_text)}"""
 
-Be specific and commercially grounded. Every recommendation must be defensible against the RFP. The volume table must be populated from actual RFP data."""
-
-    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=900, temperature=0.2)
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1500, temperature=0.2)
 
 
 
@@ -449,7 +438,7 @@ TONE: Confident, business-first. No acronyms without explanation. Write as if th
 RFP:
 {truncate_text(rfp_text)}"""
 
-    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=900, temperature=0.3)
+    return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1500, temperature=0.3)
 
 
 
@@ -549,7 +538,7 @@ def chat_with_rfp(rfp_text, question, history=None):
                 messages.append({"role": "assistant", "content": history[i+1]})
     messages.append({"role": "user", "content": question})
 
-    return call_llm(client, messages, max_tokens=900, temperature=0.3)
+    return call_llm(client, messages, max_tokens=1200, temperature=0.3)
 
 
 
