@@ -43,8 +43,36 @@ def _parse_json(raw):
     raw = raw.strip()
     s, e = raw.find("{"), raw.rfind("}")+1
     if s != -1 and e > s: raw = raw[s:e]
-    try:    return json.loads(raw)
-    except: return {}
+    try:
+        return json.loads(raw)
+    except Exception:
+        # Recovery: find all complete JSON objects in any array and rebuild
+        try:
+            import re
+            # Find the array content
+            arr_match = re.search(r'"requirements"\s*:\s*\[', raw)
+            if arr_match:
+                arr_start = arr_match.end()
+                # Find all complete objects {...} within the array
+                depth, obj_start, objects = 0, None, []
+                for i, ch in enumerate(raw[arr_start:], arr_start):
+                    if ch == '{':
+                        if depth == 0: obj_start = i
+                        depth += 1
+                    elif ch == '}':
+                        depth -= 1
+                        if depth == 0 and obj_start is not None:
+                            try:
+                                obj = json.loads(raw[obj_start:i+1])
+                                objects.append(obj)
+                            except Exception:
+                                pass
+                            obj_start = None
+                if objects:
+                    return {"requirements": objects}
+        except Exception:
+            pass
+        return {}
 
 def _detect_rfp_type(client, rfp_text):
     """Single lightweight detection call using fast model."""
@@ -149,27 +177,46 @@ RFP: {truncate(rfp_text,4000)}"""
 
 def extract_requirements_traceability(rfp_text):
     client = get_client()
-    prompt = f"""Create a requirements traceability matrix from this RFP.
-For each requirement, identify the EXACT section, clause, or heading in the RFP where it appears.
-Respond ONLY with valid JSON:
-{{"requirements":[
-  {{"id":"REQ-01","rfp_section":"Section 4.1","domain":"Domain","requirement":"What is required",
-    "priority":"Mandatory|Preferred|Optional","proposed_solution":"Product name",
-    "capability":"What our solution delivers","coverage":"Full|Partial|Gap","notes":"Brief note"}}
-]}}
-CRITICAL RULES:
-- rfp_section: quote the actual section number or heading from the RFP (e.g. "Section 4.4", "Clause 3.2 - Cybersecurity", "Executive Overview"). Never leave blank.
-- Extract 12-16 requirements covering all major domains.
-- coverage must be exactly: Full, Partial, or Gap
-RFP: {truncate(rfp_text)}"""
-    raw = call_llm(client,[{"role":"user","content":prompt}],max_tokens=2000,temperature=0.1)
+
+    # Pass 1 — extract requirements with section references (concise fields)
+    prompt = f"""Extract a requirements traceability matrix from this RFP.
+Respond ONLY with valid JSON. Keep all field values SHORT (under 10 words each).
+{{
+  "requirements": [
+    {{
+      "id": "REQ-01",
+      "rfp_section": "Section 4.1",
+      "domain": "Cybersecurity",
+      "requirement": "24x7 SOC with SIEM and SOAR",
+      "priority": "Mandatory",
+      "proposed_solution": "Microsoft Sentinel + SOAR playbooks",
+      "coverage": "Full",
+      "notes": "Covers detection and auto-response"
+    }}
+  ]
+}}
+Rules:
+- rfp_section: use the exact section number or heading from the RFP text (e.g. "Section 4.4", "Clause 3.2")
+- Extract 8-10 requirements maximum — quality over quantity
+- priority: exactly Mandatory, Preferred, or Optional
+- coverage: exactly Full, Partial, or Gap
+- Every field must be SHORT — no sentences, just key phrases
+RFP:
+{truncate(rfp_text, 4000)}"""
+
+    raw = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1500, temperature=0.1)
     r = _parse_json(raw)
-    if r and isinstance(r.get("requirements"),list) and r["requirements"]: return r
-    return {"requirements":[
-        {"id":"REQ-01","rfp_section":"Section 1","domain":"Service Operations",
-         "requirement":"24x7 service desk","priority":"Mandatory",
-         "proposed_solution":"ServiceNow ITSM","capability":"Omnichannel 24x7 support",
-         "coverage":"Full","notes":"Integrated portal+voice+chat"}]}
+
+    if r and isinstance(r.get("requirements"), list) and len(r["requirements"]) > 1:
+        return r
+
+    # Fallback — minimal valid structure
+    return {"requirements": [
+        {"id": "REQ-01", "rfp_section": "Section 1", "domain": "Service Operations",
+         "requirement": "24x7 service desk", "priority": "Mandatory",
+         "proposed_solution": "ServiceNow ITSM", "coverage": "Full",
+         "notes": "Retry — JSON parse failed"},
+    ]}
 
 
 def extract_vendor_positioning(rfp_text, rfp_type_hint=None):
