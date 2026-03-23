@@ -14,8 +14,8 @@ def get_client():
         raise ValueError("Groq API key not set")
     return OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
 
-FAST_MODEL = "llama3-8b-8192"        # detection calls — higher TPM limit
-MAIN_MODEL = "llama-3.3-70b-versatile"  # content generation
+FAST_MODEL = "llama-3.1-8b-instant"   # detection calls
+MAIN_MODEL = "llama-3.1-8b-instant"   # all generation — consistent with ai_engine.py
 
 def truncate(text, max_chars=6000):
     return text[:max_chars] if len(text) > max_chars else text
@@ -72,11 +72,11 @@ Respond ONLY with valid JSON:
   {{"requirement":"Parent domain","sub_requirement":"Deliverable","current_tool":"Tool or None",
     "licence_owner":"Customer|Supplier|Shared|None","support_hours":"8x5|24x7|etc",
     "timezone":"IST|GMT|Multi-region|Follow-the-Sun","vm_frequency":"Continuous|Weekly|Monthly",
-    "requirement_brief":"1-2 sentences on what RFP requires and current gap"}}
+    "requirement_brief":"1 sentence on current gap"}}
 ]}}
-Extract 12-18 rows using domain names from the RFP. Name actual tools if mentioned.
+Extract 8-10 rows only. Name actual tools if mentioned. Keep requirement_brief under 80 chars.
 RFP: {truncate(rfp_text)}"""
-    raw = call_llm(client,[{"role":"user","content":prompt}],max_tokens=2500,temperature=0.1)
+    raw = call_llm(client,[{"role":"user","content":prompt}],max_tokens=1200,temperature=0.1)
     r = _parse_json(raw)
     if r and isinstance(r.get("rows"),list) and r["rows"]: return r
     return {"org_name":"Customer","industry":"Enterprise","rfp_type":rfp_type,"rows":[
@@ -91,20 +91,20 @@ def extract_fmo_data(solution_rec_text):
 Respond ONLY with valid JSON:
 {"architecture_name":"Solution name","rfp_type":"type","rows":[
   {"requirement":"Domain","sub_requirement":"Deliverable","recommended_solution":"Product",
-   "vendor":"Vendor","support_model":"24x7 Managed Service","timezone_coverage":"Follow-the-Sun",
-   "vm_frequency":"Continuous","fit_rationale":"Why this for this customer"}
+   "vendor":"Vendor","support_model":"24x7 Managed","timezone_coverage":"Follow-the-Sun",
+   "fit_rationale":"Why this fits this customer"}
 ],"key_outcomes":["outcome1","outcome2"],"integration_note":"How it integrates"}
-Extract 12-18 rows with specific product/vendor names.
+Extract 8-10 rows maximum with specific product/vendor names. Keep fit_rationale under 80 chars.
 Solution Recommendation:
-""" + truncate(solution_rec_text, 5000)
-    raw = call_llm(client,[{"role":"user","content":prompt}],max_tokens=2500,temperature=0.1)
+""" + truncate(solution_rec_text, 3000)
+    raw = call_llm(client,[{"role":"user","content":prompt}],max_tokens=1200,temperature=0.1)
     r = _parse_json(raw)
     if r and isinstance(r.get("rows"),list) and r["rows"]: return r
     return {"architecture_name":"Integrated Managed Services","rfp_type":"IT Services","rows":[
         {"requirement":"Service Operations","sub_requirement":"Incident management",
          "recommended_solution":"ServiceNow ITSM","vendor":"ServiceNow",
          "support_model":"24x7 Managed Service","timezone_coverage":"Follow-the-Sun",
-         "vm_frequency":"Continuous","fit_rationale":"Industry-standard ITSM."}],
+         "fit_rationale":"Industry-standard ITSM."}],
         "key_outcomes":["Improved SLA","Reduced cost","Better UX"],
         "integration_note":"Unified platform with API integrations."}
 
@@ -137,7 +137,7 @@ Each coverage array must match solutions count. 0=Not addressed,1=Partial,2=Good
 RFP: {truncate(rfp_text,4000)}"""
         row_label = "Service Area / Requirement"
 
-    raw = call_llm(client,[{"role":"user","content":prompt}],max_tokens=1000,temperature=0.1)
+    raw = call_llm(client,[{"role":"user","content":prompt}],max_tokens=700,temperature=0.1)
     r = _parse_json(raw)
     if r and r.get("threats") and r.get("solutions") and r.get("coverage"):
         r["row_label"] = row_label
@@ -215,3 +215,110 @@ RFP: {truncate(rfp_text,3000)}"""
     }
     v = fallback.get(rfp_type, fallback["Multi-Tower"])
     return {"vendors":v,"recommended_vendor":v[0]["name"],"rationale":f"Best fit for {rfp_type} RFP."}
+
+
+def extract_compliance_scoring(rfp_text, rfp_type_hint=None):
+    """Extract compliance framework requirements and score coverage."""
+    client = get_client()
+    rfp_short = truncate(rfp_text, 4000)
+
+    prompt = f"""Read this RFP and identify all compliance, regulatory, and security framework requirements mentioned or implied.
+For each requirement, assess the status a responding vendor would typically claim.
+Respond ONLY with valid JSON:
+{{
+  "frameworks_detected": ["ISO 27001", "APRA CPS 234"],
+  "requirements": [
+    {{
+      "framework": "ISO 27001",
+      "control_ref": "A.12.6",
+      "requirement": "Technical vulnerability management programme",
+      "status": "Met",
+      "evidence_in_rfp": "RFP Section 4.4 requires VM covering all 32,000 assets",
+      "risk_if_gap": "Regulatory non-compliance, potential contract penalty"
+    }}
+  ],
+  "summary": {{"met": 8, "partial": 4, "gap": 2}},
+  "overall_compliance_score": 72,
+  "critical_gaps": ["Gap 1 description", "Gap 2 description"],
+  "compliance_narrative": "2-sentence summary of compliance posture"
+}}
+Status must be exactly one of: Met / Partial / Gap
+Extract 10-15 requirements covering all frameworks mentioned. RFP:
+{rfp_short}"""
+
+    raw = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1200, temperature=0.1)
+    r = _parse_json(raw)
+    if r and isinstance(r.get("requirements"), list) and r["requirements"]:
+        return r
+    # Fallback
+    return {
+        "frameworks_detected": ["ISO 27001", "General IT Security"],
+        "requirements": [
+            {"framework": "ISO 27001", "control_ref": "A.12.6", "requirement": "Vulnerability Management",
+             "status": "Partial", "evidence_in_rfp": "Implied by security requirements", "risk_if_gap": "Compliance exposure"},
+        ],
+        "summary": {"met": 0, "partial": 1, "gap": 0},
+        "overall_compliance_score": 50,
+        "critical_gaps": ["Unable to extract — retry"],
+        "compliance_narrative": "Compliance extraction failed. Please retry."
+    }
+
+
+def extract_bid_scoring(rfp_text, rfp_type_hint=None):
+    """Generate bid/no-bid scoring with green flags, red flags, and risk signals."""
+    client = get_client()
+    rfp_short = truncate(rfp_text, 4000)
+
+    prompt = f"""You are a senior bid director reviewing this RFP to make a bid/no-bid recommendation.
+Analyse the RFP across strategic fit, technical complexity, commercial viability, competitive risk, and delivery risk.
+Respond ONLY with valid JSON:
+{{
+  "overall_score": 74,
+  "bid_decision": "Bid — Strong Pursuit",
+  "bid_decision_rationale": "2-sentence explanation of the bid recommendation",
+  "dimensions": {{
+    "Strategic Fit": 85,
+    "Technical Complexity": 60,
+    "Commercial Viability": 75,
+    "Competitive Risk": 65,
+    "Delivery Risk": 70
+  }},
+  "green_flags": [
+    "Strong alignment with our core cybersecurity capabilities",
+    "Multi-year contract with renewal options"
+  ],
+  "red_flags": [
+    "Aggressive 180-day transition timeline",
+    "Mandatory CPS 234 Level 4 within 12 months"
+  ],
+  "commercial_risks": [
+    "AUD $180-240M envelope is fixed — limited room to negotiate scope",
+    "At-risk margin element creates revenue variability"
+  ],
+  "technical_complexity": "High",
+  "win_themes": ["Theme 1", "Theme 2", "Theme 3"],
+  "landmines": ["Risk 1 that could lose the deal", "Risk 2"],
+  "recommended_actions": ["Action 1", "Action 2", "Action 3"]
+}}
+bid_decision must be one of: Bid — Strong Pursuit / Bid with Conditions / Bid Selectively / No Bid
+technical_complexity must be: Low / Medium / High / Very High
+Scores are 0-100. Be specific to this RFP — no generic answers.
+RFP: {rfp_short}"""
+
+    raw = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1000, temperature=0.2)
+    r = _parse_json(raw)
+    if r and r.get("overall_score") and r.get("dimensions"):
+        return r
+    return {
+        "overall_score": 65,
+        "bid_decision": "Bid with Conditions",
+        "bid_decision_rationale": "Unable to fully extract bid signals. Review RFP manually.",
+        "dimensions": {"Strategic Fit": 65, "Technical Complexity": 60, "Commercial Viability": 65, "Competitive Risk": 60, "Delivery Risk": 65},
+        "green_flags": ["Retry for full analysis"],
+        "red_flags": ["Extraction failed — check API"],
+        "commercial_risks": ["Unable to extract"],
+        "technical_complexity": "Medium",
+        "win_themes": [],
+        "landmines": [],
+        "recommended_actions": ["Retry the analysis"]
+    }
