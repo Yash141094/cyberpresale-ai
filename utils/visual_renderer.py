@@ -301,57 +301,87 @@ def render_threat_coverage(data):
 
 
 def render_requirements_traceability(data):
-    """Requirements Traceability Matrix as interactive table"""
+    """Requirements Traceability Matrix — with RFP Section reference column"""
     reqs = data.get("requirements", [])
     if not reqs:
         return None
 
-    ids       = [r.get("id","") for r in reqs]
-    domains   = [r.get("domain","") for r in reqs]
-    req_texts = [r.get("requirement","")[:60]+"..." if len(r.get("requirement",""))>60 else r.get("requirement","") for r in reqs]
-    priorities= [r.get("priority","") for r in reqs]
-    solutions = [r.get("proposed_solution","") for r in reqs]
-    coverage  = [r.get("coverage","") for r in reqs]
-    notes     = [r.get("notes","") for r in reqs]
+    ids       = [str(r.get("id","")) for r in reqs]
+    sections  = [str(r.get("rfp_section","—")) for r in reqs]
+    domains   = [str(r.get("domain","")) for r in reqs]
+    req_texts = [str(r.get("requirement",""))[:70]+"…" if len(str(r.get("requirement","")))>70 else str(r.get("requirement","")) for r in reqs]
+    priorities= [str(r.get("priority","")) for r in reqs]
+    solutions = [str(r.get("proposed_solution","")) for r in reqs]
+    coverage  = [str(r.get("coverage","")) for r in reqs]
+    notes     = [str(r.get("notes",""))[:60] for r in reqs]
 
-    # Color coverage cells
     cov_colors = []
+    cov_font   = []
     for c in coverage:
-        if c == "Full":    cov_colors.append("#064e3b")
-        elif c == "Partial": cov_colors.append("#78350f")
-        else:              cov_colors.append("#7f1d1d")
+        if c == "Full":
+            cov_colors.append("#064e3b"); cov_font.append("#34d399")
+        elif c == "Partial":
+            cov_colors.append("#78350f"); cov_font.append("#f59e0b")
+        else:
+            cov_colors.append("#7f1d1d"); cov_font.append("#ef4444")
 
     pri_colors = []
     for p in priorities:
-        if p == "Mandatory": pri_colors.append("#1e3a5f")
+        if p == "Mandatory":  pri_colors.append("#1e1b4b")
         elif p == "Preferred": pri_colors.append("#3b2a6e")
-        else:                 pri_colors.append(SURFACE2)
+        else:                  pri_colors.append(SURFACE2)
 
     fig = go.Figure(data=[go.Table(
-        columnwidth=[60, 110, 280, 100, 180, 90, 200],
+        columnwidth=[55, 130, 100, 230, 90, 150, 75, 160],
         header=dict(
-            values=["<b>ID</b>", "<b>Domain</b>", "<b>Requirement</b>",
-                    "<b>Priority</b>", "<b>Proposed Solution</b>",
-                    "<b>Coverage</b>", "<b>Notes</b>"],
+            values=[
+                "<b>ID</b>",
+                "<b>RFP Section</b>",
+                "<b>Domain</b>",
+                "<b>Requirement</b>",
+                "<b>Priority</b>",
+                "<b>Proposed Solution</b>",
+                "<b>Coverage</b>",
+                "<b>Notes</b>",
+            ],
             fill_color=ACCENT,
-            font=dict(color=TEXT, size=11, family="Arial"),
+            font=dict(color=TEXT, size=10, family="Arial"),
             align="left",
-            height=32,
+            height=34,
             line_color=BORDER,
         ),
         cells=dict(
-            values=[ids, domains, req_texts, priorities, solutions, coverage, notes],
-            fill_color=SURFACE2,
-            font=dict(color=TEXT2, size=10, family="Arial"),
-            align="left",
-            height=28,
+            values=[ids, sections, domains, req_texts, priorities, solutions, coverage, notes],
+            fill_color=[
+                SURFACE2,
+                "#0f172a",   # dark blue for section column — stands out
+                SURFACE2,
+                SURFACE2,
+                pri_colors,
+                SURFACE2,
+                cov_colors,
+                SURFACE2,
+            ],
+            font=dict(
+                color=[TEXT2, "#93c5fd", TEXT2, TEXT2, TEXT2, TEXT2, cov_font, TEXT2],
+                size=[9, 9, 9, 9, 9, 9, 9, 8.5],
+                family="Arial",
+            ),
+            align=["center","left","left","left","center","left","center","left"],
+            height=30,
             line_color=BORDER,
         ),
     )])
 
+    met   = sum(1 for c in coverage if c == "Full")
+    part  = sum(1 for c in coverage if c == "Partial")
+    gap   = sum(1 for c in coverage if c == "Gap")
+
     fig.update_layout(
-        **_base_layout("Requirements Traceability Matrix - RFP Requirements to Proposed Solutions",
-                       height=max(400, len(reqs) * 32 + 100)),
+        **_base_layout(
+            f"Requirements Traceability Matrix  |  ✅ {met} Full  ·  ◑ {part} Partial  ·  ✗ {gap} Gap",
+            height=max(420, len(reqs) * 32 + 110)
+        ),
     )
 
     return fig
