@@ -574,6 +574,84 @@ def suggest_competitors(rfp_text):
     return ["TCS", "Infosys", "HCL Technologies"]
 
 
+
+def fetch_competitor_market_intel(competitor_names_list, geo, industry, rfp_type):
+    """Fetch structured market intelligence per competitor — revenue, geo presence, known wins."""
+    client = get_client()
+    names_str = ", ".join(competitor_names_list)
+    prompt = (
+        "You are a market intelligence analyst. Provide structured factual data on each competitor below.\n"
+        "Use only well-known publicly available information. If uncertain about a specific figure, "
+        "say 'est.' or 'approx.' — do NOT invent specific numbers you are unsure of. "
+        "Flag data that may be pre-2023 as [pre-2023].\n\n"
+        "For each competitor provide:\n"
+        "1. Annual IT services revenue (USD, most recent fiscal year available)\n"
+        "2. Geographic revenue split — % breakdown by region\n"
+        "3. Known strength in " + geo + " / " + industry + " market\n"
+        "4. Up to 5 publicly known contract wins relevant to " + rfp_type + " in " + industry + " / " + geo + "\n"
+        "   For each win: client name, deal type, approx contract value if public, year, source type\n"
+        "5. Their signature bid differentiator in competitive situations\n\n"
+        "Competitors: " + names_str + "\n\n"
+        "Respond ONLY with valid JSON:\n"
+        "{\n"
+        "  \"CompetitorName\": {\n"
+        "    \"revenue_usd\": \"$X billion (FY20XX)\",\n"
+        "    \"geo_split\": {\"Americas\": \"45%\", \"EMEA\": \"30%\", \"APAC\": \"25%\"},\n"
+        "    \"market_strength_in_region\": \"Description of their strength here\",\n"
+        "    \"known_wins\": [\n"
+        "      {\"client\": \"ClientName\", \"deal_type\": \"SOC-as-a-Service\", "
+        "\"value\": \"$120M\", \"year\": \"2023\", \"source\": \"press release\"}\n"
+        "    ],\n"
+        "    \"bid_differentiator\": \"Their signature angle in bids\"\n"
+        "  }\n"
+        "}\n"
+        "If no known wins exist for a competitor in this sector/geo, say so — do not invent deals."
+    )
+    raw = call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1200, temperature=0.1)
+    raw = raw.strip()
+    if "```json" in raw: raw = raw.split("```json")[1].split("```")[0].strip()
+    elif "```" in raw:   raw = raw.split("```")[1].split("```")[0].strip()
+    s, e = raw.find("{"), raw.rfind("}") + 1
+    if s != -1 and e > s:
+        try:
+            return json.loads(raw[s:e])
+        except Exception:
+            pass
+    return {}
+
+
+def _format_market_intel_block(intel_dict):
+    """Format market intel JSON into readable text for injection into competitive prompt."""
+    if not intel_dict:
+        return ""
+    lines = ["## COMPETITOR MARKET INTELLIGENCE (public data — verify before use)\n"]
+    for name, data in intel_dict.items():
+        if not isinstance(data, dict):
+            continue
+        lines.append(f"### {name}")
+        lines.append(f"**Revenue:** {data.get('revenue_usd', 'Not available')}")
+        geo = data.get("geo_split", {})
+        if geo:
+            geo_str = " | ".join(f"{k}: {v}" for k, v in geo.items())
+            lines.append(f"**Geo split:** {geo_str}")
+        lines.append(f"**Regional strength:** {data.get('market_strength_in_region', 'N/A')}")
+        wins = data.get("known_wins", [])
+        if wins:
+            lines.append("**Known public wins:**")
+            for w in wins[:5]:
+                c = w.get("client", "Unknown")
+                d = w.get("deal_type", "")
+                v = w.get("value", "")
+                y = w.get("year", "")
+                src = w.get("source", "")
+                lines.append(f"  - {c} · {d} · {v} · {y} [{src}]")
+        else:
+            lines.append("**Known public wins:** None identified in this sector/geography")
+        lines.append(f"**Bid differentiator:** {data.get('bid_differentiator', 'N/A')}")
+        lines.append("")
+    return "\n".join(lines)
+
+
 def generate_competitive_with_competitors(rfp_text, competitor_names):
     client   = get_client()
     signals  = extract_rfp_signals(rfp_text)
@@ -590,6 +668,14 @@ def generate_competitive_with_competitors(rfp_text, competitor_names):
     criteria   = ", ".join(signals.get("evaluation_criteria") or ["Not specified"])
     first_comp = str(competitor_names).split(",")[0].strip() or "the leading competitor"
 
+    # Step 1 — fetch market intel for each named competitor
+    names_list = [n.strip() for n in str(competitor_names).split(",") if n.strip()]
+    time.sleep(2)
+    market_intel = fetch_competitor_market_intel(names_list, geo, industry, rfp_type)
+    intel_block  = _format_market_intel_block(market_intel)
+    time.sleep(2)
+
+    # Step 2 — deal analysis with market intel injected as grounded context
     prompt = (
         "You are a competitive intelligence expert for a " + rfp_type + " deal.\n"
         "Named competitors bidding: " + competitor_names + "\n\n"
@@ -602,27 +688,30 @@ def generate_competitive_with_competitors(rfp_text, competitor_names):
         "- Existing tools: " + tools + "\n"
         "- Key pain points: " + pains + "\n"
         "- Evaluation criteria: " + criteria + "\n\n"
-        "Produce deal-specific competitive intelligence grounded in these signals.\n\n"
+        + (intel_block + "\n\n" if intel_block else "")
+        + "Using the market intelligence above, produce deal-specific competitive analysis.\n\n"
         "## COMPETITOR PROFILES\n"
-        "For each competitor in [" + competitor_names + "], provide:\n"
+        "For each competitor provide:\n"
         "### [Name]\n"
-        "**Threat Level:** High / Medium / Low and WHY\n"
-        "**Strongest Card:** Their best angle for THIS deal\n"
+        "**Revenue & Scale:** Their financial weight and what it signals for pricing in this deal\n"
+        "**Presence in " + geo + ":** Their actual footprint — offices, clients, recent wins here\n"
+        "**Threat Level:** High / Medium / Low and WHY for THIS specific deal\n"
+        "**Strongest Card:** Their best angle for this RFP\n"
         "**Key Weakness:** Where they are vulnerable\n"
         "**Counter-Strategy:** Exactly how we beat them\n\n"
         "## COMPETITIVE THREAT TABLE\n"
-        "| Competitor | Threat | Strongest Card | Key Weakness | Counter-Move |\n"
-        "|------------|--------|---------------|--------------|--------------|\n"
+        "| Competitor | Revenue | Geo Presence | Threat | Strongest Card | Counter-Move |\n"
+        "|------------|---------|-------------|--------|----------------|-------------||\n"
         "(one row per competitor)\n\n"
         "## WHERE WE WIN\n"
-        "Where our solution is clearly superior to all named competitors.\n\n"
+        "Where our solution is clearly superior, referencing their known gaps or missing wins.\n\n"
         "## WHERE WE ARE VULNERABLE\n"
-        "Where any competitor has an edge and what we must address.\n\n"
+        "Where any competitor has a proven edge based on their wins and differentiators.\n\n"
         "## PROPOSAL LANDMINES\n"
         "The 3 mistakes that would hand this deal to " + first_comp + ".\n\n"
         "## WINNING CONDITIONS\n"
         "The 4-5 things that must be true to win against these competitors.\n\n"
-        "RFP:\n" + truncate_text(rfp_text, 6000)
+        "RFP:\n" + truncate_text(rfp_text, 3000)
     )
 
     return call_llm(client, [{"role": "user", "content": prompt}], max_tokens=1500, temperature=0.2)
