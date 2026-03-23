@@ -150,20 +150,26 @@ RFP: {truncate(rfp_text,4000)}"""
 def extract_requirements_traceability(rfp_text):
     client = get_client()
     prompt = f"""Create a requirements traceability matrix from this RFP.
+For each requirement, identify the EXACT section, clause, or heading in the RFP where it appears.
 Respond ONLY with valid JSON:
 {{"requirements":[
-  {{"id":"REQ-01","domain":"Domain","requirement":"What is required",
+  {{"id":"REQ-01","rfp_section":"Section 4.1","domain":"Domain","requirement":"What is required",
     "priority":"Mandatory|Preferred|Optional","proposed_solution":"Product name",
     "capability":"What our solution delivers","coverage":"Full|Partial|Gap","notes":"Brief note"}}
 ]}}
-Extract 12-18 key requirements. RFP: {truncate(rfp_text)}"""
+CRITICAL RULES:
+- rfp_section: quote the actual section number or heading from the RFP (e.g. "Section 4.4", "Clause 3.2 - Cybersecurity", "Executive Overview"). Never leave blank.
+- Extract 12-16 requirements covering all major domains.
+- coverage must be exactly: Full, Partial, or Gap
+RFP: {truncate(rfp_text)}"""
     raw = call_llm(client,[{"role":"user","content":prompt}],max_tokens=2000,temperature=0.1)
     r = _parse_json(raw)
     if r and isinstance(r.get("requirements"),list) and r["requirements"]: return r
     return {"requirements":[
-        {"id":"REQ-01","domain":"Service Operations","requirement":"24x7 service desk",
-         "priority":"Mandatory","proposed_solution":"ServiceNow ITSM",
-         "capability":"Omnichannel 24x7 support","coverage":"Full","notes":"Integrated portal+voice+chat"}]}
+        {"id":"REQ-01","rfp_section":"Section 1","domain":"Service Operations",
+         "requirement":"24x7 service desk","priority":"Mandatory",
+         "proposed_solution":"ServiceNow ITSM","capability":"Omnichannel 24x7 support",
+         "coverage":"Full","notes":"Integrated portal+voice+chat"}]}
 
 
 def extract_vendor_positioning(rfp_text, rfp_type_hint=None):
