@@ -226,25 +226,31 @@ hr { border-color: var(--border) !important; margin: 0.75rem 0 !important; }
     border-collapse: collapse;
     margin: 0.8rem 0;
     font-size: 0.82rem;
+    table-layout: auto;
 }
 .cl-doc th {
-    background: var(--surface2);
-    color: var(--text);
-    font-weight: 600;
-    font-size: 0.75rem;
-    letter-spacing: 0.04em;
+    background: #1a2f5e;
+    color: #f0ece4;
+    font-weight: 700;
+    font-size: 0.72rem;
+    letter-spacing: 0.05em;
     text-transform: uppercase;
-    padding: 0.5rem 0.75rem;
+    padding: 0.55rem 0.8rem;
     border: 1px solid var(--border);
     text-align: left;
+    white-space: nowrap;
 }
 .cl-doc td {
-    padding: 0.45rem 0.75rem;
+    padding: 0.5rem 0.8rem;
     border: 1px solid var(--border);
     color: var(--text2);
     vertical-align: top;
+    line-height: 1.5;
+    word-break: break-word;
+    min-width: 80px;
 }
 .cl-doc tr:nth-child(even) td { background: var(--surface2); }
+.cl-doc td strong { color: var(--accent); }
 
 /* Wordmark */
 .cl-wordmark {
@@ -509,64 +515,88 @@ def classify_nudge():
     st.markdown("<div class='cl-nudge'>💡 <strong>Run Domain Classification first</strong> — Clarivo will detect scope, classify the RFP type, and adapt every module accordingly.</div>", unsafe_allow_html=True)
 
 def render_doc_content(content, session_key=None):
-    """Render LLM markdown as clean document HTML — dark text, structured headings, tables."""
+    """Render LLM markdown as clean document HTML — headings, bullets, tables."""
     import re
     if not content:
         return
-    # Convert markdown to document HTML
+
     html = content
-    # H2 → section heading (amber uppercase)
-    html = re.sub(r'^## (.+)$', r"<h2>\1</h2>", html, flags=re.MULTILINE)
-    # H3 → subheading
-    html = re.sub(r'^### (.+)$', r"<h3>\1</h3>", html, flags=re.MULTILINE)
-    # Bold
+    # Bold and headings
+    html = re.sub(r'^## (.+)$',  r"<h2>\1</h2>",  html, flags=re.MULTILINE)
+    html = re.sub(r'^### (.+)$', r"<h3>\1</h3>",  html, flags=re.MULTILINE)
     html = re.sub(r'\*\*(.+?)\*\*', r"<strong>\1</strong>", html)
-    # Bullet lists
+
+    # ── Table parser ────────────────────────────────────────────────────────
+    def parse_table(block_lines):
+        """Convert markdown table lines to HTML. Handles separator rows."""
+        rows = []
+        for line in block_lines:
+            line = line.strip()
+            if not (line.startswith('|') and line.endswith('|')):
+                continue
+            cells = [c.strip() for c in line[1:-1].split('|')]
+            rows.append(cells)
+        if not rows:
+            return ""
+
+        html_parts = ['<table>']
+        # First row = header, second row = separator (skip), rest = body
+        html_parts.append('<thead><tr>')
+        for c in rows[0]:
+            html_parts.append(f'<th>{c}</th>')
+        html_parts.append('</tr></thead><tbody>')
+
+        data_rows = rows[1:]
+        for row in data_rows:
+            # Skip separator rows (cells are all dashes/colons/spaces)
+            if all(re.match(r'^[-: ]+$', c) for c in row):
+                continue
+            html_parts.append('<tr>')
+            for c in row:
+                html_parts.append(f'<td>{c}</td>')
+            html_parts.append('</tr>')
+
+        html_parts.append('</tbody></table>')
+        return '\n'.join(html_parts)
+
+    # ── Line-by-line processing ─────────────────────────────────────────────
     lines = html.split('\n')
-    out, in_list, in_table = [], False, False
-    thead_done = False
+    out, in_list, table_buf = [], False, []
+
+    def flush_table():
+        if table_buf:
+            out.append(parse_table(table_buf))
+            table_buf.clear()
+
     for line in lines:
         stripped = line.strip()
-        # Table rows
-        if stripped.startswith('|') and stripped.endswith('|'):
-            if not in_table:
-                out.append('<table>')
-                in_table = True
-                thead_done = False
-            cells = [c.strip() for c in stripped[1:-1].split('|')]
-            # separator row
-            if all(set(c.replace('-','').replace(':','').replace(' ','')) == set() or c.strip('-: ') == '' for c in cells):
-                out.append('<thead><tr>' + ''.join(f'<th>{c}</th>' for c in _last_row_cells) + '</tr></thead><tbody>')
-                thead_done = True
-                continue
-            _last_row_cells = cells
-            if thead_done:
-                out.append('<tr>' + ''.join(f'<td>{c}</td>' for c in cells) + '</tr>')
-            else:
-                _last_row_cells = cells
+
+        if stripped.startswith('|') and '|' in stripped[1:]:
+            if in_list:
+                out.append('</ul>')
+                in_list = False
+            table_buf.append(stripped)
             continue
         else:
-            if in_table:
-                if not thead_done:
-                    # no separator — just plain table
-                    out.append('<thead><tr>' + ''.join(f'<th>{c}</th>' for c in _last_row_cells) + '</tr></thead><tbody>')
-                out.append('</tbody></table>')
-                in_table = False
-                thead_done = False
+            if table_buf:
+                flush_table()
 
-        # Bullet
         if stripped.startswith('* ') or stripped.startswith('- '):
-            if not in_list: out.append('<ul>'); in_list = True
+            if not in_list:
+                out.append('<ul>')
+                in_list = True
             out.append(f"<li>{stripped[2:]}</li>")
         else:
-            if in_list: out.append('</ul>'); in_list = False
+            if in_list:
+                out.append('</ul>')
+                in_list = False
             if stripped.startswith('<h') or not stripped:
-                out.append(stripped if stripped else '')
+                out.append(stripped)
             else:
                 out.append(f"<p>{stripped}</p>")
 
-    if in_list: out.append('</ul>')
-    if in_table: out.append('</tbody></table>')
+    if in_list:  out.append('</ul>')
+    if table_buf: flush_table()
 
     final_html = '\n'.join(out)
     st.markdown(f"<div class='cl-doc'>{final_html}</div>", unsafe_allow_html=True)
