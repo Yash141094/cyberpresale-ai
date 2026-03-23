@@ -22,11 +22,11 @@ except ImportError:
 try:
     from utils.visuals_engine import (
         extract_cmo_data, extract_fmo_data, extract_threat_coverage,
-        extract_requirements_traceability
+        extract_requirements_traceability, extract_compliance_scoring, extract_bid_scoring
     )
     from utils.visual_renderer import (
         render_cmo, render_fmo, render_threat_coverage,
-        render_requirements_traceability
+        render_requirements_traceability, render_compliance_scoring, render_bid_scoring
     )
     import plotly.graph_objects as go
     VISUALS_AVAILABLE = True
@@ -256,21 +256,44 @@ hr { border-color: var(--border) !important; margin: 0.75rem 0 !important; }
 .cl-wordmark span { color: #ea7c2b; }
 
 /* Page hero */
-.cl-hero-title {
-    font-family: 'Instrument Serif', serif;
-    font-size: 2.1rem;
-    font-weight: 400;
-    color: var(--text);
-    line-height: 1.2;
-    letter-spacing: -0.02em;
+.cl-hero-eyebrow {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 0.6rem;
 }
-.cl-hero-title em { font-style: italic; color: var(--accent); }
+.cl-hero-title {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 2.6rem;
+    font-weight: 800;
+    color: var(--text);
+    line-height: 1.15;
+    letter-spacing: -0.03em;
+}
+.cl-hero-title .cl-brand {
+    color: var(--accent);
+    font-weight: 800;
+}
+.cl-hero-title .cl-tagline {
+    display: block;
+    font-size: 1.5rem;
+    font-weight: 500;
+    color: var(--text3);
+    letter-spacing: -0.02em;
+    margin-top: 0.25rem;
+}
 .cl-hero-sub {
     font-size: 0.88rem;
     color: var(--text3);
     font-weight: 400;
-    line-height: 1.6;
-    margin-top: 0.5rem;
+    line-height: 1.65;
+    margin-top: 1rem;
+    max-width: 520px;
+    border-left: 3px solid var(--accent);
+    padding-left: 0.75rem;
 }
 
 /* Section title */
@@ -456,7 +479,7 @@ hr { border-color: var(--border) !important; margin: 0.75rem 0 !important; }
 # ── Session state ──────────────────────────────────────────────────────────────
 for key in ["rfp_text","file_name","customer_brief","pain_analysis","solution_rec",
             "competitive","product_map","exec_summary","domains","vis_cmo","vis_fmo",
-            "vis_threat","vis_traceability","vis_vendor","doc_summaries","rfp_context",
+            "vis_threat","vis_traceability","vis_vendor","vis_compliance","vis_bid","doc_summaries","rfp_context",
             "competitor_names","suggested_competitors"]:
     if key not in st.session_state:
         st.session_state[key] = None
@@ -616,7 +639,7 @@ with st.sidebar:
             if st.button("↺ New Document", use_container_width=True):
                 for key in ["rfp_text","file_name","customer_brief","pain_analysis","solution_rec",
                             "competitive","product_map","exec_summary","domains","vis_cmo","vis_fmo",
-                            "vis_threat","vis_traceability","vis_vendor","doc_summaries","rfp_context",
+                            "vis_threat","vis_traceability","vis_vendor","vis_compliance","vis_bid","doc_summaries","rfp_context",
                             "competitor_names","suggested_competitors"]:
                     st.session_state[key] = None
                 st.session_state.chat_history = []
@@ -627,15 +650,22 @@ with st.sidebar:
 # ══════════════════════════════════════════════════════════════════════════════
 if not st.session_state.rfp_text:
 
-    st.markdown("<div style='height:2.5rem'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:2rem'></div>", unsafe_allow_html=True)
 
-    # Greeting hero
+    # Hero block
     st.markdown("""
-    <div style='max-width:640px;margin-bottom:2rem'>
-        <div class='cl-hero-title'>Hello. I'm here to help you build<br><em>clear, sound intelligence</em> from any RFP.</div>
-        <div class='cl-hero-sub' style='margin-top:0.75rem'>
-            Upload your RFP and Clarivo reads it end-to-end — classifying scope, mapping vendors, surfacing pains,
-            and generating proposal-ready content across any IT service domain.
+    <div style='max-width:680px;margin-bottom:2.5rem'>
+        <div class='cl-hero-eyebrow'>RFP Intelligence Platform · v3.2</div>
+        <div class='cl-hero-title'>
+            <span class='cl-brand'>Clarivo</span> —<br>
+            Your RFP Intelligence<br>Command Centre.
+            <span class='cl-tagline'>From first read to winning proposal, faster.</span>
+        </div>
+        <div class='cl-hero-sub'>
+            Upload any RFP — PDF or Word — and Clarivo reads it end-to-end.
+            It classifies scope, maps competitors, surfaces the real pain points,
+            and generates proposal-ready content across any IT service domain.
+            Built for presales teams who need sharp intelligence, not more admin.
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -643,7 +673,6 @@ if not st.session_state.rfp_text:
     col1, col2 = st.columns([3, 2], gap="large")
 
     with col1:
-        # Optional context hint
         st.markdown("<div class='cl-label'>Upload RFP · PDF or Word</div>", unsafe_allow_html=True)
         uploaded_files = st.file_uploader(
             "Upload RFP", type=["pdf","docx"],
@@ -651,7 +680,6 @@ if not st.session_state.rfp_text:
             label_visibility="collapsed"
         )
 
-        # Optional context box
         with st.expander("Add context or focus area (optional)", expanded=False):
             st.session_state.rfp_context = st.text_area(
                 "Focus area",
@@ -682,15 +710,25 @@ if not st.session_state.rfp_text:
 
     with col2:
         st.markdown("<div class='cl-label'>What Clarivo gives you</div>", unsafe_allow_html=True)
-        for cap, desc in [
-            ("Customer Intelligence", "Who they are, why now, decision makers"),
-            ("Pain Analysis", "Real needs beneath the stated requirements"),
-            ("Solution Recommendation", "What to propose, how to phase, volume tables"),
-            ("Competitive Intelligence", "Who's bidding and exactly how to beat them"),
-            ("Domain Scope Map", "Pie chart of scope across all IT towers"),
-            ("PPT + Word Export", "Charts, architecture, tables — ready to send"),
+        for cap, desc, icon in [
+            ("Customer Intelligence",      "Who they are, why now, decision makers",           "01"),
+            ("Pain Analysis",              "Real needs beneath the stated requirements",        "02"),
+            ("Solution Recommendation",    "What to propose, how to phase, volume tables",     "03"),
+            ("Competitive Intelligence",   "Who's bidding and exactly how to beat them",       "04"),
+            ("Compliance Scoring",         "Met / Partial / Gap across all frameworks",        "05"),
+            ("Bid Scoring & Analysis",     "Green flags, red flags, bid/no-bid recommendation","06"),
+            ("Domain Scope Map",           "Pie chart of scope across all IT towers",          "07"),
+            ("PPT + Word Export",          "Charts, architecture, tables — ready to send",     "08"),
         ]:
-            st.markdown(f"<div class='cl-info'><div class='cl-info-label'>{cap}</div>{desc}</div>", unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class='cl-info' style='display:flex;align-items:flex-start;gap:0.6rem'>
+                <div style='font-size:0.6rem;font-weight:700;color:var(--accent);opacity:0.6;
+                            padding-top:0.25rem;flex-shrink:0;font-family:DM Mono,monospace'>{icon}</div>
+                <div>
+                    <div class='cl-info-label'>{cap}</div>
+                    <div style='font-size:0.78rem;color:var(--text3)'>{desc}</div>
+                </div>
+            </div>""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN ANALYSIS SCREEN
@@ -1078,56 +1116,112 @@ else:
             st.warning("Visuals require: pip install plotly")
         else:
             if not get_rfp_type(): classify_nudge()
-            vc1, vc2 = st.columns(2, gap="medium")
-            _cached_rfp_type = get_rfp_type()  # reuse — avoids repeat type-detection API call
+            _cached_rfp_type = get_rfp_type()
             _is_sec = bool(_cached_rfp_type and "cyber" in _cached_rfp_type.lower())
+
+            vc1, vc2, vc3 = st.columns(3, gap="medium")
+
             with vc1:
-                if st.button("Generate CMO", key="btn_cmo"):
+                st.markdown("<div class='cl-label'>Architecture</div>", unsafe_allow_html=True)
+                if st.button("Current Mode (CMO)", key="btn_cmo", use_container_width=True):
                     try:
                         with st.spinner("Analysing current environment…"):
                             st.session_state.vis_cmo = extract_cmo_data(
-                                st.session_state.rfp_text, rfp_type_hint=_cached_rfp_type); st.rerun()
+                                st.session_state.rfp_text, rfp_type_hint=_cached_rfp_type)
+                            st.rerun()
                     except Exception as e:
-                        st.error("⚠️ Rate limit hit — wait 30s then retry." if _is_rate_limit_err(e) else str(e)[:200])
-                if st.button("Generate FMO", key="btn_fmo"):
+                        st.error("⚠️ Rate limit — wait 30s." if _is_rate_limit_err(e) else str(e)[:200])
+
+                if st.button("Future Mode (FMO)", key="btn_fmo", use_container_width=True):
                     if not st.session_state.solution_rec:
-                        st.warning("Run Solution Recommendation first — FMO is built from the proposed solution.")
+                        st.warning("Run Solution Recommendation first — FMO is built from it.")
                     else:
                         try:
                             with st.spinner("Building future architecture…"):
                                 st.session_state.vis_fmo = extract_fmo_data(
-                                    st.session_state.solution_rec, rfp_type_hint=_cached_rfp_type); st.rerun()
+                                    st.session_state.solution_rec)
+                                st.rerun()
                         except Exception as e:
-                            st.error("⚠️ Rate limit hit — wait 30s then retry." if _is_rate_limit_err(e) else str(e)[:200])
-                if st.button(cov_label, key="btn_threat"):
+                            st.error("⚠️ Rate limit — wait 30s." if _is_rate_limit_err(e) else str(e)[:200])
+
+                if st.button(cov_label, key="btn_threat", use_container_width=True):
                     try:
                         with st.spinner("Mapping coverage…"):
                             st.session_state.vis_threat = extract_threat_coverage(
                                 st.session_state.rfp_text,
-                                rfp_type_hint=_cached_rfp_type, is_security_hint=_is_sec); st.rerun()
+                                rfp_type_hint=_cached_rfp_type, is_security_hint=_is_sec)
+                            st.rerun()
                     except Exception as e:
-                        st.error("⚠️ Rate limit hit — wait 30s then retry." if _is_rate_limit_err(e) else str(e)[:200])
+                        st.error("⚠️ Rate limit — wait 30s." if _is_rate_limit_err(e) else str(e)[:200])
+
             with vc2:
-                if st.button("Requirements Traceability", key="btn_trace"):
+                st.markdown("<div class='cl-label'>Requirements & Compliance</div>", unsafe_allow_html=True)
+                if st.button("Requirements Traceability", key="btn_trace", use_container_width=True):
                     try:
                         with st.spinner("Building RTM…"):
                             st.session_state.vis_traceability = extract_requirements_traceability(
-                                st.session_state.rfp_text); st.rerun()
+                                st.session_state.rfp_text)
+                            st.rerun()
                     except Exception as e:
-                        st.error("⚠️ Rate limit hit — wait 30s then retry." if _is_rate_limit_err(e) else str(e)[:200])
-                if any([st.session_state.vis_cmo, st.session_state.vis_fmo, st.session_state.vis_threat, st.session_state.vis_traceability]):
-                    if st.button("↺ Clear", key="btn_clrvis"):
-                        for vk in ["vis_cmo","vis_fmo","vis_threat","vis_traceability","vis_vendor"]: st.session_state[vk] = None
+                        st.error("⚠️ Rate limit — wait 30s." if _is_rate_limit_err(e) else str(e)[:200])
+
+                if st.button("Compliance Scoring", key="btn_compliance", use_container_width=True):
+                    try:
+                        status = st.status("Scoring compliance frameworks…", expanded=True)
+                        with status:
+                            st.write("🔍 Identifying regulatory frameworks in RFP…")
+                            st.write("📋 Mapping controls — Met / Partial / Gap…")
+                            st.session_state.vis_compliance = extract_compliance_scoring(
+                                st.session_state.rfp_text, rfp_type_hint=_cached_rfp_type)
+                            status.update(label="Compliance scoring complete ✓", state="complete", expanded=False)
                         st.rerun()
+                    except Exception as e:
+                        st.error("⚠️ Rate limit — wait 30s." if _is_rate_limit_err(e) else str(e)[:200])
+
+            with vc3:
+                st.markdown("<div class='cl-label'>Bid Intelligence</div>", unsafe_allow_html=True)
+                if st.button("🎯 Bid Scoring & Analysis", key="btn_bid", use_container_width=True):
+                    try:
+                        status = st.status("Running bid intelligence…", expanded=True)
+                        with status:
+                            st.write("📊 Scoring fit, complexity, commercial viability…")
+                            st.write("🚩 Identifying green flags, red flags, landmines…")
+                            st.session_state.vis_bid = extract_bid_scoring(
+                                st.session_state.rfp_text, rfp_type_hint=_cached_rfp_type)
+                            status.update(label="Bid analysis complete ✓", state="complete", expanded=False)
+                        st.rerun()
+                    except Exception as e:
+                        st.error("⚠️ Rate limit — wait 30s." if _is_rate_limit_err(e) else str(e)[:200])
+
+            # Clear button
+            vis_any = any(st.session_state.get(k) for k in
+                          ["vis_cmo","vis_fmo","vis_threat","vis_traceability","vis_compliance","vis_bid"])
+            if vis_any:
+                if st.button("↺ Clear all visuals", key="btn_clrvis"):
+                    for vk in ["vis_cmo","vis_fmo","vis_threat","vis_traceability",
+                               "vis_vendor","vis_compliance","vis_bid"]:
+                        st.session_state[vk] = None
+                    st.rerun()
+
+            st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+
+            # Render all generated visuals
             for vis_key, vis_label, rfn in [
-                ("vis_cmo","Current Mode of Operations",render_cmo),
-                ("vis_fmo","Future Mode of Operations",render_fmo),
-                ("vis_threat",cov_label,render_threat_coverage),
-                ("vis_traceability","Requirements Traceability",render_requirements_traceability),
+                ("vis_cmo",          "Current Mode of Operations",    render_cmo),
+                ("vis_fmo",          "Future Mode of Operations",      render_fmo),
+                ("vis_threat",       cov_label,                        render_threat_coverage),
+                ("vis_traceability", "Requirements Traceability Matrix",render_requirements_traceability),
+                ("vis_compliance",   "Compliance Scoring Matrix",       render_compliance_scoring),
+                ("vis_bid",          "Bid Intelligence Dashboard",      render_bid_scoring),
             ]:
-                if st.session_state[vis_key]:
-                    st.markdown(f"<div class='cl-label' style='margin-top:1rem'>{vis_label}</div>", unsafe_allow_html=True)
-                    st.plotly_chart(rfn(st.session_state[vis_key]), use_container_width=True)
+                if st.session_state.get(vis_key):
+                    st.markdown(f"<div class='cl-label' style='margin-top:1.2rem'>{vis_label}</div>",
+                                unsafe_allow_html=True)
+                    fig = rfn(st.session_state[vis_key])
+                    if fig:
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.warning(f"Could not render {vis_label} — try regenerating.")
 
     # ── Tab 9: Chat ───────────────────────────────────────────────────────────
     with tab9:
