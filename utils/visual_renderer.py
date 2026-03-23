@@ -458,3 +458,179 @@ def render_vendor_positioning(data):
         )
 
     return fig
+
+
+def render_compliance_scoring(data):
+    """Compliance scoring matrix — Met / Partial / Gap per framework control."""
+    reqs    = data.get("requirements", [])
+    summary = data.get("summary", {})
+    score   = data.get("overall_compliance_score", 0)
+    gaps    = data.get("critical_gaps", [])
+    narrative = data.get("compliance_narrative", "")
+
+    if not reqs:
+        return None
+
+    status_color = {"Met": "#064e3b", "Partial": "#78350f", "Gap": "#450a0a"}
+    status_text  = {"Met": "#34d399",  "Partial": "#f59e0b",  "Gap": "#ef4444"}
+    status_icon  = {"Met": "✅ Met",   "Partial": "◑ Partial","Gap": "✗ Gap"}
+
+    col_fw   = [str(r.get("framework","")) for r in reqs]
+    col_ref  = [str(r.get("control_ref","")) for r in reqs]
+    col_req  = [str(r.get("requirement",""))[:60] for r in reqs]
+    col_ev   = [str(r.get("evidence_in_rfp",""))[:80] for r in reqs]
+    col_risk = [str(r.get("risk_if_gap",""))[:70] for r in reqs]
+    statuses = [str(r.get("status","Gap")) for r in reqs]
+    col_stat = [status_icon.get(s, s) for s in statuses]
+    fill_stat = [status_color.get(s, "#450a0a") for s in statuses]
+    font_stat = [status_text.get(s,  "#ef4444") for s in statuses]
+
+    fig = go.Figure(data=[go.Table(
+        columnwidth=[120, 70, 160, 200, 170, 90],
+        header=dict(
+            values=["<b>Framework</b>","<b>Ref</b>","<b>Requirement</b>",
+                    "<b>RFP Evidence</b>","<b>Risk if Gap</b>","<b>Status</b>"],
+            fill_color="#1e1b4b",
+            font=dict(color=TEXT, size=10, family="Arial"),
+            align="left", height=36, line_color=BORDER,
+        ),
+        cells=dict(
+            values=[col_fw, col_ref, col_req, col_ev, col_risk, col_stat],
+            fill_color=[SURFACE2, SURFACE2, SURFACE2, SURFACE2, SURFACE2, fill_stat],
+            font=dict(color=[TEXT2, TEXT2, TEXT2, TEXT2, TEXT2, font_stat], size=9, family="Arial"),
+            align=["left","center","left","left","left","center"],
+            height=34, line_color=BORDER,
+        ),
+    )])
+
+    met = summary.get("met", 0)
+    partial = summary.get("partial", 0)
+    gap = summary.get("gap", 0)
+    total = met + partial + gap or 1
+
+    fig.update_layout(**_base_layout(
+        f"Compliance Scoring Matrix  |  Score: {score}/100  |  ✅ {met} Met  ·  ◑ {partial} Partial  ·  ✗ {gap} Gap",
+        height=max(420, len(reqs) * 36 + 120)
+    ))
+
+    annotations = []
+    if narrative:
+        annotations.append(narrative[:140])
+    if gaps:
+        annotations.append("Critical gaps: " + "  |  ".join(str(g)[:60] for g in gaps[:3]))
+    if annotations:
+        fig.add_annotation(
+            text="  //  ".join(annotations),
+            xref="paper", yref="paper", x=0.0, y=-0.07,
+            showarrow=False, font=dict(color="#f59e0b", size=9), align="left",
+        )
+
+    return fig
+
+
+def render_bid_scoring(data):
+    """Bid scoring dashboard — radar chart + flags table."""
+    dims      = data.get("dimensions", {})
+    score     = int(data.get("overall_score", 0))
+    decision  = str(data.get("bid_decision", "—"))
+    rationale = str(data.get("bid_decision_rationale", ""))
+    green     = data.get("green_flags", [])
+    red       = data.get("red_flags", [])
+    risks     = data.get("commercial_risks", [])
+    complexity= str(data.get("technical_complexity", "—"))
+    themes    = data.get("win_themes", [])
+    landmines = data.get("landmines", [])
+    actions   = data.get("recommended_actions", [])
+
+    decision_color = {
+        "Bid — Strong Pursuit": "#064e3b",
+        "Bid with Conditions":  "#78350f",
+        "Bid Selectively":      "#1e3a5f",
+        "No Bid":               "#450a0a",
+    }.get(decision, "#1e1b4b")
+
+    from plotly.subplots import make_subplots
+    fig = make_subplots(
+        rows=1, cols=2,
+        specs=[[{"type": "polar"}, {"type": "table"}]],
+        column_widths=[0.42, 0.58],
+        horizontal_spacing=0.04,
+    )
+
+    # Radar chart
+    dim_names = list(dims.keys())
+    dim_vals  = [int(v) for v in dims.values()]
+    if dim_names:
+        fig.add_trace(go.Scatterpolar(
+            r=dim_vals + [dim_vals[0]],
+            theta=dim_names + [dim_names[0]],
+            fill="toself",
+            fillcolor="rgba(99,102,241,0.25)",
+            line=dict(color="#6366f1", width=2),
+            name="Bid Score",
+        ), row=1, col=1)
+
+    # Flags table
+    max_rows = max(len(green), len(red), len(risks), 1)
+    def pad(lst, n): return [str(x)[:70] for x in lst] + [""] * (n - len(lst))
+
+    tbl_green = pad(green, max_rows)
+    tbl_red   = pad(red,   max_rows)
+    tbl_risk  = pad(risks, max_rows)
+
+    fill_green = ["#064e3b" if v else SURFACE2 for v in tbl_green]
+    fill_red   = ["#450a0a" if v else SURFACE2 for v in tbl_red]
+    fill_risk  = ["#1e3a5f" if v else SURFACE2 for v in tbl_risk]
+    font_green = ["#34d399" if v else TEXT2 for v in tbl_green]
+    font_red   = ["#ef4444" if v else TEXT2 for v in tbl_red]
+    font_risk  = ["#93c5fd" if v else TEXT2 for v in tbl_risk]
+
+    fig.add_trace(go.Table(
+        columnwidth=[200, 200, 200],
+        header=dict(
+            values=["<b>✅ Green Flags</b>","<b>🚩 Red Flags</b>","<b>💰 Commercial Risks</b>"],
+            fill_color=["#064e3b","#450a0a","#1e3a5f"],
+            font=dict(color=TEXT, size=10, family="Arial"),
+            align="left", height=34, line_color=BORDER,
+        ),
+        cells=dict(
+            values=[tbl_green, tbl_red, tbl_risk],
+            fill_color=[fill_green, fill_red, fill_risk],
+            font=dict(color=[font_green, font_red, font_risk], size=9, family="Arial"),
+            align="left", height=32, line_color=BORDER,
+        ),
+    ), row=1, col=2)
+
+    fig.update_polars(
+        bgcolor=SURFACE,
+        radialaxis=dict(visible=True, range=[0,100], color=BORDER, gridcolor=BORDER,
+                        tickfont=dict(color=TEXT2, size=8)),
+        angularaxis=dict(color=TEXT2, tickfont=dict(size=9, color=TEXT2)),
+    )
+
+    complexity_badge = {"Low":"🟢","Medium":"🟡","High":"🟠","Very High":"🔴"}.get(complexity,"⚪")
+    title = (f"Bid Intelligence  |  Score: {score}/100  |  {decision}  |  "
+             f"Complexity: {complexity_badge} {complexity}")
+
+    fig.update_layout(
+        **_base_layout(title, height=480),
+        showlegend=False,
+    )
+    fig.update_layout(paper_bgcolor=SURFACE, plot_bgcolor=SURFACE)
+
+    annotation_parts = []
+    if rationale:
+        annotation_parts.append(rationale[:130])
+    if themes:
+        annotation_parts.append("Win themes: " + "  ·  ".join(str(t)[:40] for t in themes[:3]))
+    if actions:
+        annotation_parts.append("Actions: " + "  ·  ".join(str(a)[:50] for a in actions[:3]))
+
+    if annotation_parts:
+        fig.add_annotation(
+            text="  //  ".join(annotation_parts),
+            xref="paper", yref="paper", x=0.0, y=-0.07,
+            showarrow=False, font=dict(color=GREEN, size=9), align="left",
+        )
+
+    return fig
